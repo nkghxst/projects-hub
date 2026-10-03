@@ -1,6 +1,6 @@
 // Projects hub service worker (phone): keeps the app itself available offline. Data never goes through this
 // cache; GitHub API calls pass straight through, and the app keeps its own snapshot of the data.
-const VERSION = 'hub-129495d22c'
+const VERSION = 'hub-477f4f2856'
 const SHELL = [
   './',
   './index.html',
@@ -24,14 +24,15 @@ self.addEventListener('install', event => {
   )
 })
 
+const dropOldCaches = () => caches.keys().then(keys => Promise.all(keys.filter(key => key !== VERSION).map(key => caches.delete(key))))
+
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then(keys => Promise.all(keys.filter(key => key !== VERSION).map(key => caches.delete(key))))
-      .then(() => self.clients.claim()),
-  )
+  event.waitUntil(dropOldCaches().then(() => self.clients.claim()))
 })
+
+// An outgoing worker can still be saving into its own cache while this one activates, which recreates that
+// cache; so clean up again once, on this worker's first request, when the old one has gone.
+let isTidied = false
 
 // Network first, so a new version shows up whenever there's a connection; the cached copy when there isn't.
 // 'no-cache' revalidates with the server each time (GitHub Pages otherwise lets browsers reuse files for 10
@@ -40,6 +41,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return
+  if (!isTidied) {
+    isTidied = true
+    event.waitUntil(dropOldCaches())
+  }
   event.respondWith(
     fetch(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then(response => {
