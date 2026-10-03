@@ -819,8 +819,10 @@ window.addEventListener('resize', () => {
 
 // ---------- start ----------
 
-// The desktop hub server answers /api/health; GitHub Pages (or any static host) doesn't.
+// The desktop hub server answers /api/health; GitHub Pages (or any static host) doesn't. The server only
+// accepts localhost, so anywhere else there's no need to ask.
 async function detectMode()                              {
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return 'github'
   try {
     const res = await fetch('./api/health', { cache: 'no-store' })
     if (res.ok && ((await res.json())                    ).ok) return 'local'
