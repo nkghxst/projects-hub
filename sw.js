@@ -34,12 +34,14 @@ self.addEventListener('activate', event => {
 })
 
 // Network first, so a new version shows up whenever there's a connection; the cached copy when there isn't.
-// A shared link opens the app with a query string, so cached pages match ignoring it.
+// 'no-cache' revalidates with the server each time (GitHub Pages otherwise lets browsers reuse files for 10
+// minutes, which would delay updates). A shared link opens the app with a query string, so cached pages
+// match ignoring it.
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then(response => {
         if (response.ok) {
           const copy = response.clone()
