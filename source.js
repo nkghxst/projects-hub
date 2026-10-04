@@ -17,16 +17,20 @@ import { buildProject, commitBy, headerOf, MACHINES, pairProjects, parseDoc, par
 
                       
                           
+                                                                                                                          
+              
                                
                                                
                               
                                                                                      
-                                                                                           
+                                                                                                                 
+                                                                                                        
                                                                                              
  
 
-// An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'other'.
-                                                          
+// An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
+// already at a note's path), 'other'.
+                                                                       
 export function sourceError(code                 , message        )        {
   const error = new Error(message)
   error.name = code
@@ -49,6 +53,7 @@ async function getJson   (url        , init              )             {
 export function localSource()         {
   return {
     kind: 'local',
+    dest: 'local',
     projects: () => getJson      ('/api/projects'),
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
@@ -67,26 +72,51 @@ export function localSource()         {
 
                                                                              
 
-                                                                                 
-                                                                                                                         
+const GITHUB_API = 'https://api.github.com'
+const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
-const SNAPSHOT_KEY = 'hub.gh.snapshot'
+// The published app only ever talks to GitHub's API, so the token can't be sent anywhere else. A different API address
+// (the test mock) is honoured only when the page itself runs on this machine.
+export function effectiveApiBase(settings                )         {
+  const wanted = settings.apiBase.trim().replace(/\/+$/, '')
+  return isLocalPage() && wanted ? wanted : GITHUB_API
+}
+
+export function destinationOf(settings                )         {
+  return `${new URL(effectiveApiBase(settings)).origin}|${settings.repo.trim().toLowerCase()}`
+}
+
+                                                                                 
+                                                                                                                                       
+
+const SNAPSHOT_PREFIX = 'hub.gh.snapshot.'
+const snapshotKey = (dest        ) => `${SNAPSHOT_PREFIX}${dest}`
+
+// The last good snapshot for this destination, or null. A snapshot made for another repository is never returned.
+function readSnapshot(dest        )                  {
+  try {
+    const s = JSON.parse(localStorage.getItem(snapshotKey(dest)) ?? 'null')                   
+    return s && s.dest === dest ? s : null
+  } catch {
+    return null
+  }
+}
+
+// Set when the phone couldn't keep its offline copy (storage full); the page says so.
+let snapshotProblem = ''
+export const snapshotSaveProblem = () => snapshotProblem
 
 export function githubSource(settings                )         {
   const [owner, name] = settings.repo.trim().split('/')
-  const api = settings.apiBase.trim().replace(/\/+$/, '') || 'https://api.github.com'
+  const api = effectiveApiBase(settings)
+  const dest = destinationOf(settings)
   const headers = {
     authorization: `Bearer ${settings.token.trim()}`,
     accept: 'application/vnd.github+json',
     'x-github-api-version': '2022-11-28',
   }
   // The last good snapshot, kept on the phone so projects and records still read offline.
-  let snapshot                  = null
-  try {
-    snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? 'null')                   
-  } catch {
-    snapshot = null
-  }
+  let snapshot                  = readSnapshot(dest)
 
   async function graphql   (query        )             {
     let res          
@@ -111,6 +141,7 @@ export function githubSource(settings                )         {
   const tree = (path        ) =>
     `object(expression: ${JSON.stringify(`HEAD:${path}`)}) { ... on Tree { entries { name type object { ... on Blob { text } } } } }`
   const wrap = (fields        ) => `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields} } }`
+  const contentsUrl = (path        ) => `${api}/repos/${owner}/${name}/contents/${path.split('/').map(encodeURIComponent).join('/')}`
 
   // Two requests: every file the views need, then the newest commit for each record.
   async function load()                    {
@@ -156,11 +187,12 @@ export function githubSource(settings                )         {
       .map(([p, text]) => parseNote(p, text))
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
-    snapshot = { at: Date.now(), hosts, texts, edits, notes }
+    snapshot = { dest, at: Date.now(), hosts, texts, edits, notes }
     try {
-      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot))
+      localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
+      snapshotProblem = ''
     } catch {
-      // Storage full: the snapshot still works for this session.
+      snapshotProblem = "Couldn't keep an offline copy: this phone's storage for the app is full."
     }
     return snapshot
   }
@@ -169,22 +201,10 @@ export function githubSource(settings                )         {
     return snapshot ?? (await load())
   }
 
-  function projectsFrom(s          )            {
-    const list            = []
-    for (const machine of MACHINES             ) {
-      const index = s.texts[`memory/${machine}/projects/INDEX.md`]
-      if (index === undefined) continue
-      for (const row of parseIndexRows(index)) {
-        const file = row.fileName ? `memory/${machine}/projects/${row.fileName}` : ''
-        list.push(buildProject(machine, row, headerOf(s.texts[file] ?? ''), s.edits[file], Date.now(), list.length))
-      }
-    }
-    return pairProjects(list)
-  }
-
   return {
     kind: 'github',
-    // A fresh load each time; offline, the last snapshot (the caller is told by the error it catches first).
+    dest,
+    // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => ({ now: Date.now(), projects: projectsFrom(await load()), live: [] }),
     record: async path => {
       const s = await current()
@@ -212,7 +232,7 @@ export function githubSource(settings                )         {
       for (const b of bytes) binary += String.fromCharCode(b)
       let res          
       try {
-        res = await fetch(`${api}/repos/${owner}/${name}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
+        res = await fetch(contentsUrl(path), {
           method: 'PUT',
           headers: { ...headers, 'content-type': 'application/json' },
           body: JSON.stringify({ message, content: btoa(binary) }),
@@ -221,40 +241,31 @@ export function githubSource(settings                )         {
         throw sourceError('offline', 'No connection to GitHub')
       }
       if (res.status === 201 || res.status === 200) return 'created'
-      if (res.status === 422) {
-        // "sha wasn't supplied" means the file is already there: a retry of a note that did arrive.
-        const detail = ((await res.json().catch(() => ({})))                        ).message ?? ''
-        if (/\bsha\b/i.test(detail)) return 'exists'
-        throw sourceError('other', `GitHub refused the note: ${detail || 'invalid request'}`)
-      }
       if (res.status === 401 || res.status === 403 || res.status === 404) {
         throw sourceError('auth', `GitHub refused the note (${res.status}). The token needs Contents: read and write on ${settings.repo}.`)
+      }
+      if (res.status === 422) {
+        const detail = ((await res.json().catch(() => ({})))                        ).message ?? ''
+        if (!/\bsha\b/i.test(detail)) throw sourceError('other', `GitHub refused the note: ${detail || 'invalid request'}`)
+        // Something is already at this path. It counts as delivered only if it's exactly this note (a retry that
+        // arrived); anything else is a conflict to show, never a silent success.
+        let existing                = null
+        try {
+          const got = await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' } })
+          if (got.ok) existing = await got.text()
+        } catch {
+          throw sourceError('offline', 'No connection to GitHub')
+        }
+        const same = (a        ) => a.replace(/\r\n/g, '\n').trimEnd()
+        if (existing !== null && same(existing) === same(text)) return 'exists'
+        throw sourceError('conflict', `A different file already exists at ${path}; this note was kept on the phone.`)
       }
       throw sourceError('other', `GitHub answered ${res.status}`)
     },
   }
 }
 
-// The last snapshot's age, for the "offline, showing data from …" line.
-export function snapshotAge()                {
-  try {
-    const s = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? 'null')                   
-    return s ? s.at : null
-  } catch {
-    return null
-  }
-}
-
-export function snapshotProjects(settings                )              {
-  // Offline start: rebuild the views from the stored snapshot without a request.
-  const s = (() => {
-    try {
-      return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? 'null')                   
-    } catch {
-      return null
-    }
-  })()
-  if (!s || !settings.repo) return null
+function projectsFrom(s          )            {
   const list            = []
   for (const machine of MACHINES             ) {
     const index = s.texts[`memory/${machine}/projects/INDEX.md`]
@@ -264,5 +275,27 @@ export function snapshotProjects(settings                )              {
       list.push(buildProject(machine, row, headerOf(s.texts[file] ?? ''), s.edits[file], Date.now(), list.length))
     }
   }
-  return { now: Date.now(), projects: pairProjects(list), live: [] }
+  return pairProjects(list)
+}
+
+// The age of the saved copy for these settings, for the "offline, showing data from …" line.
+export function snapshotAge(settings                )                {
+  return readSnapshot(destinationOf(settings))?.at ?? null
+}
+
+// Offline start: rebuild the views from the saved copy for these settings, without a request.
+export function snapshotProjects(settings                )              {
+  if (!settings.repo.trim()) return null
+  const s = readSnapshot(destinationOf(settings))
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [] } : null
+}
+
+// Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".
+export function snapshotKeys()           {
+  const keys           = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key?.startsWith(SNAPSHOT_PREFIX)) keys.push(key)
+  }
+  return keys
 }

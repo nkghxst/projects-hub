@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#1f2a3a">
-    <!-- Only this site's own scripts, and network calls only to itself and GitHub's API (localhost for testing).
-         The phone keeps a GitHub token, so nothing else may run here. -->
+    <!-- Only this site's own scripts, and network calls only to itself and GitHub's API. The phone keeps a GitHub
+         token, so nothing else may run here. (The published build removes the two test-only sources at the end.) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
     <title>Projects hub</title>
     <link rel="manifest" href="manifest.webmanifest">

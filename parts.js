@@ -1,5 +1,5 @@
 // Small pieces several views share: marks, names, links, flag chips, the live-work box and note cards.
-import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, resolvePath } from './core.js'
+import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, resolvePath } from './core.js'
                                                                    
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
@@ -12,10 +12,11 @@ export const machineName = (m         ) => (m === 'desktop' ? 'Desktop' : 'Lapto
 export const projectName = (file        ) =>
   state.data?.projects.find(p => p.file === file)?.name ?? file.split('/').pop()?.replace(/\.md$/, '') ?? file
 export const notesFor = (file        ) => state.notes.filter(n => n.project === file)
-export const queuedFor = (file        ) => state.queue.filter(q => q.project === file)
+// Waiting notes for a project, in the repository now in use (held ones for another repository show in the inbox).
+export const queuedFor = (file        ) => state.queue.filter(q => q.project === file && q.dest === state.source?.dest)
 
 // Only http(s) addresses become links; anything else (javascript:, data:, file:) is shown as text.
-export const isWebUrl = (url        ) => /^https?:\/\/[^\s"<>]+$/i.test(url.trim())
+export { isWebUrl }
 
 export function linkResolver(docPath        )               {
   const dir = docPath.split('/').slice(0, -1).join('/')
@@ -76,7 +77,9 @@ export function liveBox(source      , now        , isCompact         )         {
     </section>`
 }
 
-export function noteCard(n               , isQueued         )         {
+// A note or idea. Queued notes get their state and, where it applies, their actions: a conflict or a note held for
+// another repository can be copied or discarded, and a held one can be sent to the current repository instead.
+export function noteCard(n               , isQueued         , hold                                 = '')         {
   const resolve = linkResolver(n.path)
   const project = n.project ? `<a href="${recordHref(n.project)}">${esc(projectName(n.project))}</a>` : ''
   const captured = 'captured' in n ? n.captured : fmtStamp(n.createdAt, Date.now())
@@ -86,15 +89,28 @@ export function noteCard(n               , isQueued         )         {
     : isWebUrl(sourceUrl)
       ? `<div class="clip"><a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(sourceUrl)}</a></div>`
       : `<div class="clip muted">${esc(sourceUrl)}</div>`
+  const status = !isQueued ? '' : hold === 'conflict' ? ' · conflict: not sent' : hold === 'other-repo' ? ' · held: written for another repository' : ' · saved on this phone, waiting to send'
+  const id = 'id' in n ? n.id : ''
+  const actions =
+    isQueued && hold
+      ? `<div class="actions">
+          ${hold === 'other-repo' && state.source?.createFile ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to the current repository instead</button>` : ''}
+          <button class="link" data-action="copy-queued" data-value="${esc(id)}">Copy text</button>
+          <button class="link muted" data-action="discard" data-value="${esc(id)}">Discard</button>
+        </div>`
+      : ''
+  const conflict = 'conflict' in n && n.conflict ? `<p class="error small">${esc(n.conflict)}</p>` : ''
   return `
     <article class="card note ${isQueued ? 'queued' : ''}">
       <div class="note-head">
         <span class="mark" title="${n.kind === 'idea' ? 'Idea' : 'Note'}">${n.kind === 'idea' ? '◇' : '✎'}</span>
         <strong>${esc(n.title)}</strong>
-        <span class="muted">${esc(captured)}${project ? ' · ' : ''}${project}${isQueued ? ' · waiting to send' : ''}</span>
+        <span class="muted">${esc(captured)}${project ? ' · ' : ''}${project}${status}</span>
         ${!isQueued && state.mode === 'local' ? `<a class="link muted" href="${recordHref(n.path)}">file</a>` : ''}
       </div>
       <div class="md">${renderMarkdown(n.body, resolve)}</div>
       ${source}
+      ${conflict}
+      ${actions}
     </article>`
 }

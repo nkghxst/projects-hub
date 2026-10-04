@@ -283,7 +283,7 @@ export function parseNote(path        , text        )       {
     path,
     kind: path.includes('/ideas/') ? 'idea' : 'note',
     project: fields.project ?? '',
-    title: fields.title || body.split('\n')[0].slice(0, 80),
+    title: fields.title || body.split('\n')[0].slice(0, 80) || fields.source || '(untitled)',
     captured: fields.captured ?? '',
     source: fields.source ?? '',
     body,
@@ -302,14 +302,25 @@ export function slugify(text        )         {
   )
 }
 
-// A new note's path and file text. The time is local, as the owner reads it.
+// A random ID for each capture (8 hex characters). It goes into the file name, so two notes can never share a path
+// even with the same title in the same second, and it stays fixed when a send is retried.
+export function noteId()         {
+  const bytes = crypto.getRandomValues(new Uint8Array(4))
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// http(s) addresses only: anything else (javascript:, data:, file:) is never treated as a link.
+export const isWebUrl = (url        ) => /^https?:\/\/[^\s"<>]+$/i.test(url.trim())
+
+// A new note's ID, path and file text. The time is local, as the owner reads it. A note needs text or a link.
 export function formatNote(
   draft                                                                                  ,
   nowMs        ,
-)                                 {
+  id         = noteId(),
+)                                             {
   const d = new Date(nowMs)
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-  const title = draft.title.trim() || draft.body.trim().split('\n')[0].slice(0, 80)
+  const title = (draft.title.trim() || draft.body.trim().split('\n')[0] || draft.source.trim()).slice(0, 80)
   const captured = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   const header = [
     ...(draft.kind === 'note' && draft.project ? [`project: ${draft.project}`] : []),
@@ -318,7 +329,8 @@ export function formatNote(
     ...(draft.source.trim() ? [`source: ${draft.source.trim()}`] : []),
   ]
   return {
-    path: `${PHONE_DIR}/${draft.kind === 'idea' ? 'ideas' : 'notes'}/${stamp}-${slugify(title)}.md`,
+    id,
+    path: `${PHONE_DIR}/${draft.kind === 'idea' ? 'ideas' : 'notes'}/${stamp}-${slugify(title)}-${id}.md`,
     text: `${header.join('\n')}\n\n${draft.body.trim()}\n`,
   }
 }

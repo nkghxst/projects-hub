@@ -7,25 +7,32 @@ import { fmtStamp, pad } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import {
   clearDraft,
+  discardQueued,
   flushQueue,
   forgetToken,
   loadAll,
+  queuedText,
   refresh,
+  removeAllData,
   route,
   saveDraft,
   saveSettings,
+  sendHeldHere,
   setDraftKind,
   setFilters,
   summarise,
   takeShare,
 } from './actions.js'
 import { captureHref, currentRoute } from './routes.js'
-import { githubSource, localSource } from './source.js'
-import { changed, isConfigured, onChange, REFRESH_MS, settings, state, toast } from './state.js'
+import { githubSource, localSource, snapshotSaveProblem } from './source.js'
+import { changed, isConfigured, onChange, QUEUE_PREFIX, REFRESH_MS, refreshQueue, settings, state, toast } from './state.js'
                                          
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
 import { renderRecord } from './view-record.js'
+
+// The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
+const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
 
 const view = document.getElementById('view')               
 const nav = document.getElementById('nav')               
@@ -86,12 +93,15 @@ function render() {
   } else {
     html = state.error ? `<p class="error">${esc(state.error)}</p>` : '<p class="muted">Loading…</p>'
   }
-  const banner = state.isOffline
-    ? `<p class="banner">Offline: showing projects as of ${esc(fmtStamp(state.loadedAt, Date.now()))}.</p>`
-    : state.error && state.data && r.name === 'list'
-      ? `<p class="banner">Last refresh failed: ${esc(state.error)}</p>`
-      : ''
-  view.innerHTML = banner + html
+  const banners = [
+    isStaleServer
+      ? "This hub server is running old code and couldn't be restarted automatically. Close the Node.js process in Task Manager, then click the Projects hub shortcut again."
+      : '',
+    state.isOffline ? `Offline: showing projects as of ${fmtStamp(state.loadedAt, Date.now())}.` : '',
+    !state.isOffline && state.error && state.data && r.name === 'list' ? `Last refresh failed: ${state.error}` : '',
+    state.mode === 'github' ? snapshotSaveProblem() : '',
+  ].filter(Boolean)
+  view.innerHTML = banners.map(b => `<p class="banner">${esc(b)}</p>`).join('') + html
   renderNav()
 
   const at = new Date(state.loadedAt)
@@ -136,9 +146,12 @@ document.addEventListener('click', async event => {
   else if (action === 'draft-kind') setDraftKind(value            )
   else if (action === 'clear-draft') clearDraft()
   else if (action === 'forget-token') forgetToken()
-  else if (action === 'copy') {
+  else if (action === 'remove-all') removeAllData()
+  else if (action === 'send-here') await sendHeldHere(value)
+  else if (action === 'discard') discardQueued(value)
+  else if (action === 'copy' || action === 'copy-queued') {
     try {
-      await navigator.clipboard.writeText(target.dataset.text ?? '')
+      await navigator.clipboard.writeText(action === 'copy' ? (target.dataset.text ?? '') : queuedText(value))
       toast('Copied')
     } catch {
       toast("Couldn't copy here")
@@ -160,6 +173,18 @@ document.addEventListener('input', event => {
   else if (el.id === 'draft-title') state.draft.title = el.value
   else if (el.id === 'draft-body') state.draft.body = el.value
   else if (el.id === 'draft-source') state.draft.source = el.value
+  else if (el.id === 'set-repo') state.settingsDraft.repo = el.value
+  else if (el.id === 'set-token') state.settingsDraft.token = el.value
+  else if (el.id === 'set-api') state.settingsDraft.apiBase = el.value
+})
+
+// Another window of the app changed the queue: show it, and send if this window is the one that can.
+window.addEventListener('storage', event => {
+  if (event.key === null || event.key.startsWith(QUEUE_PREFIX)) {
+    refreshQueue()
+    changed()
+    void flushQueue()
+  }
 })
 
 document.addEventListener('change', event => {

@@ -3,12 +3,19 @@ import { MACHINES } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { machineName, noteCard, projectName } from './parts.js'
 import { captureHref } from './routes.js'
-import { settings, state } from './state.js'
+import { state } from './state.js'
+
+const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
 export function renderInbox()         {
   const kind = state.inboxKind
   const notes = state.notes.filter(n => kind === 'all' || n.kind === kind)
   const queued = state.queue.filter(q => kind === 'all' || q.kind === kind)
+  const dest = state.source?.dest
+  // Waiting notes, split by what's stopping them: nothing (they'll send), a conflict, or another repository.
+  const sending = queued.filter(q => q.dest === dest && !q.conflict)
+  const conflicts = queued.filter(q => q.dest === dest && q.conflict)
+  const held = queued.filter(q => q.dest !== dest)
   const canCapture = Boolean(state.source?.createFile)
   return `
     <div class="crumbs"><a class="button" href="#/">← All projects</a>${canCapture ? `<a class="button primary" href="${captureHref()}">✎ New note</a>` : ''}</div>
@@ -24,9 +31,21 @@ export function renderInbox()         {
         .join('')}
     </div>
     ${
-      queued.length > 0
-        ? `<section class="queue"><div class="label">Waiting to send (${queued.length})${state.queueError ? `: ${esc(state.queueError)}` : ''}
-            <button class="link" data-action="retry">Retry now</button></div>${queued.map(q => noteCard(q, true)).join('')}</section>`
+      sending.length > 0
+        ? `<section class="queue"><div class="label">Saved on this phone, waiting to send (${sending.length})${state.queueError ? `: ${esc(state.queueError)}` : ''}
+            <button class="link" data-action="retry">Retry now</button></div>${sending.map(q => noteCard(q, true)).join('')}</section>`
+        : ''
+    }
+    ${
+      conflicts.length > 0
+        ? `<section class="queue"><div class="label">Not sent: a different file is already at the note's path (${conflicts.length})</div>
+            ${conflicts.map(q => noteCard(q, true, 'conflict')).join('')}</section>`
+        : ''
+    }
+    ${
+      held.length > 0
+        ? `<section class="queue"><div class="label">Held: written for a different repository than the one in Settings (${held.length})</div>
+            ${held.map(q => noteCard(q, true, 'other-repo')).join('')}</section>`
         : ''
     }
     ${notes.map(n => noteCard(n, false)).join('') || (queued.length === 0 ? '<p class="muted">Nothing here yet.</p>' : '')}`
@@ -65,13 +84,13 @@ export function renderCapture()         {
           : ''
       }
       <label>Title <span class="muted">(optional)</span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
-      <label>${d.kind === 'idea' ? 'Idea' : 'Note'}<textarea id="draft-body" rows="8" required>${esc(d.body)}</textarea></label>
+      <label>${d.kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span><textarea id="draft-body" rows="8">${esc(d.body)}</textarea></label>
       <label>Link <span class="muted">(optional)</span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
       <div class="actions">
         <button class="primary" type="submit">Save</button>
         <button type="button" data-action="clear-draft">Clear</button>
       </div>
-      <p class="muted small">Saved straight to the phone and sent to claude-profile (memory/phone/) when there's a connection. Don't put passwords or tokens in notes.</p>
+      <p class="muted small">Saved on this phone straight away, then sent to claude-profile (memory/phone/) when there's a connection. Don't put passwords or tokens in notes.</p>
     </form>`
 }
 
@@ -79,22 +98,29 @@ export function renderSettings()         {
   if (state.mode === 'local') {
     return `<h2 class="title">Settings</h2><p>The desktop app reads your local claude-profile clone and needs no settings.</p><p><a href="#/">← All projects</a></p>`
   }
+  // What's being typed survives redraws; it only replaces the saved settings on Save.
+  const d = state.settingsDraft
   return `
     <h2 class="title">Settings</h2>
-    <p>This app reads your private <code>claude-profile</code> repo from GitHub with a fine-grained token that stays on this phone.</p>
+    <p>This app reads your private <code>claude-profile</code> repo from GitHub with a fine-grained token that stays on this phone and is only ever sent to <code>api.github.com</code>.</p>
     <form class="form" id="settings" autocomplete="off">
-      <label>Repository<input id="set-repo" value="${esc(settings.repo)}" placeholder="owner/name" autocapitalize="off" spellcheck="false"></label>
-      <label>Token<input id="set-token" type="password" value="${esc(settings.token)}" placeholder="github_pat_…" autocapitalize="off" spellcheck="false"></label>
-      <details><summary>Advanced</summary><label>API address<input id="set-api" value="${esc(settings.apiBase)}" spellcheck="false"></label></details>
+      <label>Repository<input id="set-repo" value="${esc(d.repo)}" placeholder="owner/name" autocapitalize="off" spellcheck="false"></label>
+      <label>Token<input id="set-token" type="password" value="${esc(d.token)}" placeholder="github_pat_…" autocapitalize="off" spellcheck="false"></label>
+      ${isLocalPage() ? `<details><summary>Advanced (testing on this machine)</summary><label>API address<input id="set-api" value="${esc(d.apiBase)}" spellcheck="false"></label></details>` : ''}
       <div class="actions">
         <button class="primary" type="submit">Save and connect</button>
-        ${settings.token ? '<button type="button" data-action="forget-token">Forget token</button>' : ''}
+        ${d.token ? '<button type="button" data-action="forget-token">Forget token</button>' : ''}
       </div>
-      ${state.settingsMessage ? `<p class="${state.settingsMessage.startsWith('Connected') ? '' : 'error'}">${esc(state.settingsMessage)}</p>` : ''}
+      ${state.settingsMessage ? `<p class="${state.settingsMessage.startsWith('Connected') || state.settingsMessage.startsWith('Offline') ? '' : 'error'}">${esc(state.settingsMessage)}</p>` : ''}
     </form>
     <section class="card">
       <div class="label strong">Making the token</div>
       <p>GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only <code>claude-profile</code>.
       Permissions: <strong>Contents: Read and write</strong> (Metadata: Read is added automatically). Revoke it there if the phone is lost.</p>
+    </section>
+    <section class="card">
+      <div class="label strong">This device</div>
+      <p class="small">Forget token keeps saved notes and the offline copy. This removes everything the app keeps here: token, settings, offline copies and unsent notes.</p>
+      <button type="button" data-action="remove-all">Remove all hub data from this device</button>
     </section>`
 }
