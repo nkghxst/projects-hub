@@ -200,28 +200,34 @@ export async function refresh() {
   changed()
 }
 
+// A summary belongs to the text it was written from: the request carries the section's hash, and the reply is applied to
+// whichever section has that hash when it arrives, even if a refresh has moved it. If the section has gone or changed,
+// the summary stays in the cache for that text and nothing on screen is mislabelled.
 export async function summarise(index        , isRedo         ) {
   const doc = state.record
   const ask = state.source?.summarise
-  if (!doc || !ask || state.pending.has(index)) return
+  const hash = doc?.sections[index]?.hash ?? ''
+  if (!doc || !ask || !hash || state.pending.has(hash)) return
   const path = doc.path
   const generation = state.sourceGeneration
-  state.pending.add(index)
+  state.pending.add(hash)
   changed()
   try {
-    const reply = await ask(path, index, isRedo)
-    // Only apply it if the same record, from the same source, is still open.
-    if (reply.ok && reply.summary && state.record?.path === path && generation === state.sourceGeneration) {
-      state.record.sections[index].summary = reply.summary           
+    const reply = await ask(path, index, isRedo, hash)
+    const target = state.record?.path === path && generation === state.sourceGeneration ? state.record.sections.findIndex(s => s.hash === hash) : -1
+    if (reply.ok && reply.summary && target !== -1 && state.record) {
+      state.record.sections[target].summary = reply.summary           
       // A summary only shows in full while its section is open, so open it to show the result.
-      state.open.add(String(index))
+      state.open.add(String(target))
+    } else if (reply.ok && state.record?.path === path) {
+      toast('That section changed while it was being summarised; refresh to see the current text')
     } else if (!reply.ok) {
       toast(`Couldn't summarise: ${reply.error ?? 'unknown error'}`)
     }
   } catch (error) {
     toast(`Couldn't summarise: ${errorText(error)}`)
   } finally {
-    state.pending.delete(index)
+    state.pending.delete(hash)
     changed()
   }
 }
@@ -259,19 +265,23 @@ export function setDraftKind(kind          ) {
 }
 
 export async function saveSettings() {
-  // What's in the field, or failing that the draft (which typing keeps in step), so a field not on screen isn't lost.
-  const value = (id        , fallback        ) => (document.getElementById(id)                           )?.value.trim() || fallback.trim()
+  // What's in the field when it's on screen, even if it's been emptied; the draft only for a field that isn't there.
+  const value = (id        , fallback        ) => {
+    const field = document.getElementById(id)                           
+    return (field ? field.value : fallback).trim()
+  }
   settings.repo = value('set-repo', state.settingsDraft.repo)
   settings.token = value('set-token', state.settingsDraft.token)
   settings.apiBase = value('set-api', state.settingsDraft.apiBase) || 'https://api.github.com'
   localStorage.setItem('hub.github', JSON.stringify(settings))
   state.settingsDraft = { ...settings }
+  // Any saved change, including one that leaves the app unconfigured, retires the old connection and what it showed,
+  // so a cleared token or repository can't keep being used by a refresh or the note sender.
+  replaceSource(null)
   if (!isConfigured()) {
     state.settingsMessage = 'Fill in the repository as owner/name, and the token.'
     return changed()
   }
-  // A new destination: stop work for the old one and clear what it showed.
-  replaceSource(null)
   state.source = connectGitHub()
   state.settingsMessage = 'Connecting…'
   changed()
@@ -299,6 +309,12 @@ export async function pasteAndConnect() {
   }
   if (!text) {
     state.settingsMessage = "Couldn't read the clipboard. Long-press the Token box, choose Paste, then Connect."
+    return changed()
+  }
+  // Only something shaped like a GitHub token is saved; anything else copied by mistake stays out of storage.
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+  if (!isLocal && !/^(?:github_pat_|ghp_)\w+$/.test(text)) {
+    state.settingsMessage = "That doesn't look like a GitHub token (they start github_pat_). Copy the token from GitHub's page and try again."
     return changed()
   }
   state.settingsDraft.token = text

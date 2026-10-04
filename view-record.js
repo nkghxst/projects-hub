@@ -7,7 +7,7 @@ import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
 import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, providerTag, queuedFor } from './parts.js'
 import { captureHref, recordHref } from './routes.js'
                                                                 
-import { state } from './state.js'
+import { isPinned, state } from './state.js'
 
 function rowsHtml(md        , resolve              )         {
   return readableRows(md)
@@ -49,7 +49,7 @@ function catchUpPrompt(p         , source      , worktreeRoot        )         {
 // answer. The heading's button says whether the section is open and which content it controls.
 function sectionHtml(s             , i        , isCurrent         , resolve              , md                          )         {
   const isOpen = state.open.has(String(i))
-  const isPending = state.pending.has(i)
+  const isPending = Boolean(s.hash) && state.pending.has(s.hash ?? '')
   const canSummarise = Boolean(state.source?.summarise) && Boolean(s.hash)
   const bodyId = `section-${i}`
   const summary = s.summary
@@ -122,7 +122,7 @@ export function renderRecord(doc            , data             )         {
       ${p && behind && desktop ? `<button data-action="copy" data-text="${esc(catchUpPrompt(p, behind, desktop.worktreeRoot))}">Copy catch-up prompt</button>` : ''}
       ${desktop ? `<button data-action="copy" data-text="${esc(`${desktop.repoWindows}\\${doc.path.split('/').join('\\')}`)}">Copy path</button>` : ''}
       ${p && p.pairFile && other ? `<a class="button" href="${recordHref(p.pairFile)}">${machineName(other)} record →</a>` : ''}
-      ${p ? `<button data-action="pin" data-value="${esc(p.file)}" aria-pressed="${state.pins.has(p.file)}">${state.pins.has(p.file) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}
+      ${p ? `<button data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-pressed="${isPinned(p)}">${isPinned(p) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}
     </div>
     ${
       recordNotes.length + recordQueue.length > 0

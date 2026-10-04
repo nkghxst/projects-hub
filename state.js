@@ -133,6 +133,7 @@ export const state = {
   recordError: '',
   open: new Set        (),
   liveMore: false,
+  // Sections being summarised, by the hash of their text (an index can point elsewhere after a refresh).
   pending: new Set        (),
   notes: []          ,
   inboxKind: 'all'                    ,
@@ -146,6 +147,9 @@ export const state = {
   canInstall: false,
   isInstalled: false,
 }
+
+// Pinned on this device: a pin on either record of a paired project counts for the project.
+export const isPinned = (p                                    ) => state.pins.has(p.file) || (p.pairFile !== '' && state.pins.has(p.pairFile))
 
 export function refreshQueue() {
   state.queue = readQueue()

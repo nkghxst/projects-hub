@@ -133,8 +133,12 @@ document.addEventListener('click', async event => {
     state.nextMore = !state.nextMore
     changed()
   } else if (action === 'pin') {
-    if (state.pins.has(value)) state.pins.delete(value)
-    else state.pins.add(value)
+    // Unpinning clears a pin on either record of the pair, so the project really leaves Pinned.
+    const pair = target.dataset.pair ?? ''
+    if (state.pins.has(value) || (pair && state.pins.has(pair))) {
+      state.pins.delete(value)
+      state.pins.delete(pair)
+    } else state.pins.add(value)
     localStorage.setItem('hub.pins', JSON.stringify([...state.pins]))
     changed()
   }
@@ -167,7 +171,14 @@ document.addEventListener('click', async event => {
   else if (action === 'forget-token') forgetToken()
   else if (action === 'remove-all') await removeAllData()
   else if (action === 'paste-connect') await pasteAndConnect()
-  else if (action === 'install') await installPrompt?.prompt()
+  else if (action === 'install' && installPrompt) {
+    // The browser's prompt can only be used once; after it, the setup screen goes back to the menu instructions.
+    const prompt = installPrompt
+    installPrompt = null
+    state.canInstall = false
+    await prompt.prompt()
+    changed()
+  }
   else if (action === 'send-here') await sendHeldHere(value)
   else if (action === 'discard') discardQueued(value)
   else if (action === 'copy' || action === 'copy-queued') {

@@ -1,6 +1,6 @@
 // Projects hub service worker (phone): keeps the app itself available offline. Data never goes through this
 // cache; GitHub API calls pass straight through, and the app keeps its own snapshot of the data.
-const VERSION = 'hub-d8acc38c0c'
+const VERSION = 'hub-29e2206da3'
 const SHELL = [
   './',
   './actions.js',

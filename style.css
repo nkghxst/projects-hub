@@ -229,3 +229,6 @@ details.activity > summary { list-style: none; }
 .provider { font-size: 12px; line-height: 1.5; padding: 0 7px; border: 1px solid; border-radius: 999px; color: var(--ink); white-space: nowrap; }
 .provider.claude { border-color: #d97757; background: color-mix(in srgb, #d97757 16%, var(--card)); }
 .provider.codex { border-color: #10a37f; background: color-mix(in srgb, #10a37f 16%, var(--card)); }
+/* A keyword-matched ask, as opposed to one the record states outright. */
+.possible { font-size: 11.5px; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 6px; }
+details.help { margin-top: 6px; }

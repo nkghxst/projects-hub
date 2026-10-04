@@ -6,12 +6,14 @@ import { escapeHtml as esc, inline } from './markdown.js'
 import { chips, dot, linkResolver, liveBox, machineName, notesFor, providerTag, queuedFor } from './parts.js'
 import { recordHref } from './routes.js'
                                        
-import { state } from './state.js'
+import { isPinned, state } from './state.js'
 
 const GROUPS                                             = [
   { status: 'waiting', label: 'Waiting on you' },
   { status: 'active', label: 'Active' },
   { status: 'hold', label: 'On hold or blocked' },
+  // Neither a hold nor progress is stated, so the home doesn't guess.
+  { status: 'unstated', label: 'Status not stated' },
   { status: 'done', label: 'Done' },
 ]
 const NEXT_SHOWN = 6
@@ -28,28 +30,41 @@ function onePerProject(list           )            {
 
 const openDetails = (key        ) => (state.openDetails.has(key) ? ' open' : '')
 
+// Where a quote came from, briefly: the full section title is in its tooltip.
+const sourceLabel = (where        ) => (where === 'index row' || where === 'Next' ? where : 'current checkpoint')
+
+// What needs the owner: lines a record states outright ("Waiting on …:") first, then keyword matches, marked as
+// possible asks. It covers actions as well as decisions, so it's called "Needs you".
 function decisions(all           , now        )         {
-  const waiting = all.filter(p => p.waits.length > 0).sort((a, b) => (b.checkedMs ?? -1) - (a.checkedMs ?? -1))
-  const explain = `<p class="muted small">Quoted from current checkpoints, Next lines and index rows where work waits on you
-    (wording like "waits for your decision" or "needs your approval"), so it can miss some.</p>`
+  const waiting = all
+    .filter(p => p.waits.length > 0)
+    .sort((a, b) => Number(b.waits.some(w => w.isStated)) - Number(a.waits.some(w => w.isStated)) || (b.checkedMs ?? -1) - (a.checkedMs ?? -1))
+  const help = `<details class="help small"><summary>How this works</summary><p class="muted">Lines a checkpoint states as
+    "Waiting on …" come first. Others are matched by wording such as "waits for your decision" or "needs your approval",
+    marked "possible", and can miss some. Only current checkpoints, Next lines and index rows are read.</p></details>`
   if (waiting.length === 0) {
-    return `<section class="card decisions"><h2 class="home-h">Needs your decision</h2>
-      <p>Nothing found waiting on you in the current checkpoints.</p>${explain}</section>`
+    return `<section class="card decisions"><h2 class="home-h">Needs you</h2>
+      <p>Nothing found waiting on you in the current checkpoints.</p>${help}</section>`
   }
   const count = waiting.reduce((n, p) => n + p.waits.length, 0)
   return `
     <section class="card decisions accent">
-      <h2 class="home-h">Needs your decision <span class="muted">(${count})</span></h2>
+      <h2 class="home-h">Needs you <span class="muted">(${count})</span></h2>
       ${waiting
         .map(
           p => `<div class="decision">
             <div class="decision-head"><a href="${recordHref(p.file)}"><strong>${esc(p.name)}</strong></a> ${providerTag(p)}
-              <span class="muted small">${dot(p.machine)} ${machineName(p.machine)}${p.checkedMs !== null ? ` · checkpoint ${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : ''}</span></div>
-            ${p.waits.map(w => `<blockquote class="quote">${esc(w.text)} <span class="muted small">(${esc(w.where)})</span></blockquote>`).join('')}
+              <span class="muted small">${dot(p.machine)} ${machineName(p.machine)}${p.checkedMs !== null ? ` · ${esc(fmtDay(p.checkedMs))}` : ''}</span></div>
+            ${p.waits
+              .map(
+                w => `<blockquote class="quote">${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)}
+                  <span class="muted small" title="${esc(w.where)}">(${esc(sourceLabel(w.where))})</span></blockquote>`,
+              )
+              .join('')}
           </div>`,
         )
         .join('')}
-      ${explain}
+      ${help}
     </section>`
 }
 
@@ -65,7 +80,8 @@ function nextActions(list           , now        )         {
           .map(
             p => `<li><a href="${recordHref(p.file)}"><strong>${esc(p.name)}</strong></a>
               <span class="muted small">${dot(p.machine)} ${p.checkedMs !== null ? esc(ageLabel(p.checkedMs, now, false)) : ''}</span> ${providerTag(p)}
-              <div class="next-text">${inline(p.next, linkResolver(p.file))}</div></li>`,
+              ${p.isNextCurrent === false ? `<span class="muted small" title="From ${esc(p.nextWhere ?? '')}, which isn't dated as current">· undated</span>` : ''}
+              <div class="next-text" title="From ${esc(p.nextWhere ?? 'the record')}">${inline(p.next, linkResolver(p.file))}</div></li>`,
           )
           .join('')}
       </ul>
@@ -83,9 +99,11 @@ export function renderList(data      , width        )         {
   const all = [...data.projects].sort(sorter(f.sort))
   const projects = onePerProject(all)
   const shown = onePerProject(all.filter(isMatch))
-  const pinned = projects.filter(p => state.pins.has(p.file))
+  // A pin on either record of a paired project pins the project, whichever record the home shows for it.
+  const pinned = projects.filter(isPinned)
   const k = kpis(data.projects, data.live, now)
   const chart = activityChart(data.projects, now, Math.max(260, Math.min(720, width - 40)))
+  const incomplete = data.projects.filter(p => p.activityComplete === false).length
   const active = data.live.filter(s => s.latestMs !== null && now - s.latestMs < 3 * 24 * 60 * 60 * 1000)
 
   const row = (p         ) => {
@@ -153,7 +171,9 @@ export function renderList(data      , width        )         {
         ${k.behind > 0 ? `<span>${dot('good', '⚡')} ${k.behind} with newer local work</span>` : ''}
       </div>
       <section class="card chart">
-        <div class="muted">Records updated per day, last 14 days (${chart.total} record${chart.total === 1 ? '' : 's'} in all); hover a day for names</div>
+        <div class="muted">Records updated per day, last 14 days (${chart.total} record${chart.total === 1 ? '' : 's'} in all); hover a day for names${
+          incomplete > 0 ? `. History is incomplete here for ${incomplete} record${incomplete === 1 ? '' : 's'} with very many recent changes.` : ''
+        }</div>
         ${chart.source}
         <div class="legend"><span>${dot('desktop', '■')} Desktop</span><span>${dot('laptop', '■')} Laptop</span></div>
       </section>

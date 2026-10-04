@@ -11,10 +11,21 @@
 
                                          
 // Where a project stands for its owner: something waits on them, it's moving, it's on hold or blocked, or it's done.
-                                                                  
+                                                                               
 // A sentence quoted from a record's current text where work waits on the owner, and where it was found.
-                                                  
-                                                                                                                          
+// isStated: the record says it outright ("Waiting on Sam: …"); otherwise it's a keyword match, a possible ask.
+                                                                     
+                           
+              
+                                                                                                                     
+                   
+                        
+                   
+               
+                           
+                   
+                       
+ 
 
                        
                   
@@ -27,9 +38,10 @@
                
                   
                
-                       
                                                                                                                
                        
+                                                                                                                   
+                           
                
                                                                         
                                                  
@@ -40,6 +52,7 @@
                   
                      
               
+                   
                    
                    
  
@@ -92,7 +105,7 @@ export const FLAGS                                                              
     label: 'unverified',
     tone: 'muted',
   },
-  { flag: 'hold', test: /^paused\b|\bhold\b/i, icon: '⏸', label: 'on hold', tone: 'muted' },
+  { flag: 'hold', test: /(?<!\b(?:not|no longer)\s)\b(?:paused|on hold)\b|\bhold\b/i, icon: '⏸', label: 'on hold', tone: 'muted' },
   { flag: 'done', test: /^completed\b/i, icon: '✓', label: 'done', tone: 'good' },
 ]
 export const NEEDS_ATTENTION         = ['blocked', 'pending', 'unverified']
@@ -215,13 +228,12 @@ export function buildProject(
   edit                    ,
   nowMs        ,
   order        ,
-  owner = '',
-  updatedDays           = [],
+  extra                                                                         = {},
 )          {
   const state = plain(row.state)
   const dates = [...datesIn(headerOf(record), nowMs), ...datesIn(row.state, nowMs)]
   const flags = FLAGS.filter(f => f.test.test(state)).map(f => f.flag)
-  const facts = recordFacts(record, row.state, owner)
+  const facts = recordFacts(record, row.state, extra.owner ?? '')
   return {
     machine,
     name: row.name,
@@ -233,18 +245,12 @@ export function buildProject(
     flags,
     pairFile: '',
     order,
-    status: statusOf(flags, facts.waits),
-    updatedDays,
+    updatedDays: extra.updatedDays ?? [],
+    activityComplete: extra.activityComplete ?? true,
     ...facts,
   }
 }
 
-export function statusOf(flags        , waits        )                {
-  if (waits.length > 0) return 'waiting'
-  if (flags.includes('done')) return 'done'
-  if (flags.includes('blocked') || flags.includes('hold')) return 'hold'
-  return 'active'
-}
 
 // Records with the same file name on both machines point at each other.
 export function pairProjects(list           )            {
@@ -410,10 +416,25 @@ export function parseLogEntries(text        , limit        )              {
   return entries.slice(-limit).reverse()
 }
 
-function callout(lines          , label        )         {
-  for (const line of lines) {
-    const m = line.match(LABELLED)
-    if (m && label.test(m[1].trim()) && m[2].trim() !== '') return m[2].trim()
+// "Label: text" as bold (**Label:**), plain (Label:) or a list item. When the label line itself is empty, the list
+// under it is the value ("**Next action:**" followed by numbered steps), joined with semicolons.
+const PLAIN_LABEL = /^\s*(?:[-*+]\s+)?([A-Z][^:*`[\]()]{0,32}):\s*(.*)$/
+function labelled(text        , label        )         {
+  const lines = text.replace(/\r/g, '').split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(LABELLED) ?? lines[i].match(PLAIN_LABEL)
+    if (!m || !label.test(m[1].trim())) continue
+    if (m[2].trim() !== '') return m[2].trim()
+    const items           = []
+    for (let j = i + 1; j < lines.length; j++) {
+      const item = lines[j].match(/^\s+(?:[-*+]|\d+[.)])\s+(.*)$/) ?? lines[j].match(/^(?:\d+[.)])\s+(.*)$/)
+      if (!item) break
+      // Struck-out steps are done: "~~Back up~~ done 28 Sep" isn't a next step.
+      const step = item[1].replace(/~~[^~]*~~/g, '').trim()
+      if (step !== '' && !/^done\b/i.test(step)) items.push(step)
+    }
+    // Steps that end in their own full stop are just spaced; others get a semicolon between them.
+    if (items.length > 0) return items.map((step, k) => (k < items.length - 1 && !/[.!?;:]$/.test(step) ? `${step};` : step)).join(' ')
   }
   return ''
 }
@@ -423,6 +444,47 @@ function callout(lines          , label        )         {
 export function currentSectionIndex(titles          )         {
   const i = titles.findIndex(t => /^(?:current|latest)\b/i.test(t.trim()))
   return i === -1 ? 0 : i
+}
+
+const CURRENT_TITLE = /^(?:current|latest)\b/i
+// A nested heading for older material inside the current section ("### v0.3.0 install record (29 Sep …; superseded
+// …)"): the current text ends there, so history kept inside it isn't read as current. Found on a real record, 4 Oct.
+const HISTORY_HEADING =
+  /^#{3,}\s+.*(?:supersed|histor|previous|earlier|older|archive|\b(?:19|20)\d\d-\d\d-\d\d\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)/i
+function currentText(body        )         {
+  const lines = body.split('\n')
+  const end = lines.findIndex(l => HISTORY_HEADING.test(l))
+  return (end === -1 ? lines : lines.slice(0, end)).join('\n')
+}
+
+// Where a record's facts may come from. With a current section: the preamble and that section's own text, never an
+// older checkpoint. Without one: the whole record, section by section, with a "## Next" heading read as a Next label;
+// those facts are undated, and say which section they came from.
+                                                                
+function factScopes(preamble        , sections           )          {
+  const current = sections.find(s => CURRENT_TITLE.test(s.title))
+  if (current) {
+    return [
+      { where: 'preamble', text: preamble, isCurrent: true },
+      { where: current.title, text: currentText(current.body), isCurrent: true },
+    ]
+  }
+  return [
+    { where: 'preamble', text: preamble, isCurrent: false },
+    ...sections.map(s => ({
+      where: s.title,
+      text: /^(?:next|read first)\b/i.test(s.title) ? `${s.title.replace(/:$/, '')}:\n${s.body.replace(/^(?!\s)/gm, '  ')}` : s.body,
+      isCurrent: false,
+    })),
+  ]
+}
+
+function findLabelled(scopes         , label        )                                                      {
+  for (const scope of scopes) {
+    const text = labelled(scope.text, label)
+    if (text) return { text, where: scope.where, isCurrent: scope.isCurrent }
+  }
+  return { text: '', where: '', isCurrent: false }
 }
 
 export function parseDoc(path        , text        )                       {
@@ -447,17 +509,21 @@ export function parseDoc(path        , text        )                       {
     }
   }
 
+  const trimmed = sections.map(s => ({ title: s.title, body: s.body.trim() }))
+  const scopes = factScopes(preamble.join('\n').trim(), trimmed)
+  const next = findLabelled(scopes, /^next\b/i)
   return {
     path,
     title,
     preamble: preamble.join('\n').trim(),
-    sections: sections.map(s => ({ title: s.title, body: s.body.trim() })),
-    next: callout(lines, /^next\b/i),
-    readFirst: callout(lines, /^read first\b/i),
+    sections: trimmed,
+    next: next.text,
+    nextWhere: next.where,
+    readFirst: findLabelled(scopes, /^read first\b/i).text,
   }
 }
 
-// ---------- what a record says now: Next, what waits on the owner, who worked on it last ----------
+// ---------- what a record says now: Next, what waits on the owner, who worked on it last, its status ----------
 
 // The owner's first name, from profile.md's "# About <Name>" heading; read at runtime, so no name lives in this file.
 export function ownerOf(profile        )         {
@@ -466,8 +532,9 @@ export function ownerOf(profile        )         {
 
 const escapeRegExp = (s        ) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-// Sentences where work waits on the owner: a decision, choice, approval, go-ahead or action that's theirs. It's a
-// keyword heuristic, so the app quotes the sentence rather than interpreting it, and it can miss some.
+// Sentences where work waits on the owner: a decision, choice, approval, go-ahead or action that's theirs. A stated
+// "Waiting on <owner>:" line is the record's own word; anything else is a keyword match, quoted rather than
+// interpreted, and marked as a possible ask.
                                                                                    
 function waitPatterns(owner        )               {
   if (!owner) return { stated: null, anywhere: [], inNext: [] }
@@ -475,7 +542,6 @@ function waitPatterns(owner        )               {
   const asks = '(?:decision|choice|approval|go-ahead|review|input|answer|sign-off|confirmation|call)'
   const acts = '(?:decide|choose|pick|approve|confirm|review|start|launch|run|test|check|install|reply|answer|sign off|accept)'
   return {
-    // A checkpoint stating the hold outright ("**Waiting on Sam:** …", "Decision for Sam: …") always counts.
     stated: new RegExp(`^(?:\\*\\*)?(?:waiting (?:on|for)|needs|decisions? for|questions? for)\\s+${n}\\b[^:]{0,30}:`, 'i'),
     anywhere: [
       new RegExp(`\\b(?:wait(?:s|ing)?|await(?:s|ing)?|held|holds|pending|parked|paused|blocked)\\b[^.;]{0,30}?\\b(?:on|for|until)\\s+${n}\\b`, 'i'),
@@ -490,16 +556,27 @@ function waitPatterns(owner        )               {
   }
 }
 // "Next: …", "**Next:** …" or "**Next**: …", as a line or a list item.
-const NEXT_LINE = /^\s*(?:[-*+]\s+)?(?:\*\*next:\*\*|\*\*next\*\*:|next:)\s*(.*)$/i
+const NEXT_LINE = /^\s*(?:[-*+]\s+)?(?:\*\*next[^:*]{0,20}:\*\*|\*\*next[^:*]{0,20}\*\*:|next[^:]{0,20}:)\s*(.*)$/i
 // A wait that has ended or is only being reported: these sentences are history, not a current ask. "Sentences where
 // work waits on Sam" describes a kind of wait rather than making one (found on a real record, 4 Oct).
 const NOT_WAITING =
   /\b(?:no longer|not (?:waiting|needed|blocked)|was waiting|were waiting|waited|resolved|withdrawn|superseded)\b|\b(?:where|whenever|when)\s+(?:\w+\s+){0,2}(?:waits?|is waiting)\b/i
+// A rule or example rather than an ask: "If blocked until Sam approves, show a message."
+const CONDITIONAL = /^(?:\*\*[^*]*\*\*:?\s*)?(?:if|when|whenever|unless|should|in case)\b/i
+// A stated wait that says there's nothing to wait for: "Waiting on Sam: none; resolved yesterday."
+const STATED_NONE = /:\**\s*(?:none|nothing|n\/a|no\b|not now|resolved|done)\b/i
+const QUOTE_LIMIT = 280
 
-// The sentences of some markdown, with list markers and struck-out text removed.
+// The sentences of some markdown, with list markers, struck-out text and code blocks removed.
 function sentencesOf(md        )           {
   const out           = []
+  let isCode = false
   for (const raw of md.replace(/\r/g, '').split('\n')) {
+    if (/^\s*```/.test(raw)) {
+      isCode = !isCode
+      continue
+    }
+    if (isCode) continue
     const line = raw.replace(/~~[^~]*~~/g, ' ').replace(LIST_ITEM, '').replace(/^#+\s+/, '').trim()
     if (line === '' || line.startsWith('|')) continue
     for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z"“(*])/)) if (s.trim()) out.push(s.trim())
@@ -509,15 +586,22 @@ function sentencesOf(md        )           {
 
 function findWaits(md        , where        , patterns              , isNext = false)         {
   if (patterns.anywhere.length === 0) return []
-  return sentencesOf(md)
-    .filter(s => {
-      if (patterns.stated?.test(s)) return true
+  const out         = []
+  for (const s of sentencesOf(md)) {
+    let isStated = false
+    if (patterns.stated?.test(s)) {
+      if (STATED_NONE.test(s)) continue
+      isStated = true
+    } else {
       // Quoted text ("…", “…”, `…`) is someone else's words or an example, never the record's own ask.
       const bare = s.replace(/"[^"]*"|“[^”]*”|`[^`]*`/g, ' ')
       const usable = isNext || NEXT_LINE.test(s) ? [...patterns.anywhere, ...patterns.inNext] : patterns.anywhere
-      return usable.some(p => p.test(bare)) && !NOT_WAITING.test(bare)
-    })
-    .map(s => ({ text: textOf(s).slice(0, 280), where }))
+      if (!usable.some(p => p.test(bare)) || NOT_WAITING.test(bare) || CONDITIONAL.test(bare)) continue
+    }
+    const text = textOf(s)
+    out.push({ text: text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT - 1).trimEnd()}…` : text, where, isStated })
+  }
+  return out
 }
 
 // Claude or Codex, when the text names exactly one of them; Codeg when the work ran inside it.
@@ -527,35 +611,55 @@ function providerIn(text        )                                               
   return { provider: isClaude === isCodex ? null : isClaude ? 'claude' : 'codex', viaCodeg: /\bCodeg\b/i.test(text) }
 }
 
-const CURRENT_TITLE = /^(?:current|latest)\b/i
+// Where a project stands, from what its index row and current checkpoint actually say: a stated pause or hold, or
+// words that it's moving. Nothing is assumed from silence: with neither, its status is "not stated".
+const PAUSED = /(?<!\b(?:not|no longer)\s)\b(?:paused|on hold|parked|stalled)\b|\bhold\b|(?<!\bun)\bblocked\b/i
+const MOVING = /\b(?:in progress|in use|active|building|ongoing|under ?way|working on|preparing|running|in development|started|next:)/i
+// Active also when the current checkpoint names a next step that isn't conditional ("if the issue is resumed, …").
+export function statusOf(flags        , waits        , said = '', currentNext = '')                {
+  if (waits.length > 0) return 'waiting'
+  if (flags.includes('done')) return 'done'
+  if (flags.includes('blocked') || flags.includes('hold') || PAUSED.test(said)) return 'hold'
+  return MOVING.test(said) || (currentNext !== '' && !CONDITIONAL.test(currentNext)) ? 'active' : 'unstated'
+}
 
 // What a record says now. Only current text counts: the index row, the record's Next line, and its section titled
-// "Current…" or "Latest…" (none counts when no section is). Older checkpoints and undated sections are history.
+// "Current…" or "Latest…" up to any nested history (none counts when no section is). Older checkpoints and undated
+// sections are history; an undated Next is still shown, marked as undated.
 export function recordFacts(record        , rowState        , owner        )              {
   const doc = parseDoc('', record)
   const current = doc.sections.find(s => CURRENT_TITLE.test(s.title))
+  const currentBody = current ? currentText(current.body) : ''
   const patterns = waitPatterns(owner)
   const seen = new Set        ()
   const key = (text        ) => text.replace(/^[^:]{0,24}:\s*/, '').toLowerCase()
+  const isNextCurrent = Boolean(current) || doc.nextWhere === 'preamble'
   const waits = [
     ...findWaits(rowState, 'index row', patterns),
-    ...(current ? findWaits(current.body, current.title, patterns) : []),
-    ...findWaits(doc.next, 'Next', patterns, true),
-  ].filter(w => !seen.has(key(w.text)) && seen.add(key(w.text)))
+    ...(current ? findWaits(currentBody, current.title, patterns) : []),
+    ...(isNextCurrent ? findWaits(doc.next, 'Next', patterns, true) : []),
+  ]
+    .filter(w => !seen.has(key(w.text)) && seen.add(key(w.text)))
+    // When the record states its waits outright, those are its word: keyword matches elsewhere (often the index row
+    // restating the same ask) would only repeat them.
+    .filter((w, _, all) => w.isStated || !all.some(o => o.isStated))
   const rowNext = plain(rowState).match(/\bnext:\s*(.+?)\s*$/i)?.[1] ?? ''
-  // A plain "- Next: …" line in the current checkpoint counts as its Next when there's no bold **Next:** callout.
-  const bodyNext = current?.body.split('\n').map(l => l.match(NEXT_LINE)?.[1]?.trim() ?? '').find(Boolean) ?? ''
   // Who worked on it last: the current heading, else its Updated line; no tag when neither names one provider.
   const fromTitle = providerIn(current?.title ?? '')
-  const updated = current?.body.split('\n').find(l => /\*\*Updated:?\*\*/i.test(l)) ?? ''
+  const updated = currentBody.split('\n').find(l => /\*\*Updated:?\*\*/i.test(l)) ?? ''
   const fromUpdated = providerIn(updated)
   const who = fromTitle.provider ? fromTitle : fromUpdated
+  const said = `${plain(rowState)}\n${labelled(currentBody, /^(?:status|state)\b/i)}`
+  const flags = FLAGS.filter(f => f.test.test(plain(rowState))).map(f => f.flag)
   return {
-    next: doc.next || bodyNext || rowNext,
+    next: doc.next || rowNext,
+    nextWhere: doc.next ? doc.nextWhere : rowNext ? 'index row' : '',
+    isNextCurrent: doc.next ? isNextCurrent : Boolean(rowNext),
     readFirst: doc.readFirst,
-    waits: waits.slice(0, 3),
+    waits,
     provider: who.provider,
     viaCodeg: fromTitle.viaCodeg || fromUpdated.viaCodeg,
+    status: statusOf(flags, waits, said, doc.next && isNextCurrent ? doc.next : ''),
   }
 }
 

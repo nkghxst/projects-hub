@@ -22,7 +22,8 @@ import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf
                                
                                                
                               
-                                                                                     
+                                                                                                               
+                                                                                                   
                                                                                                                  
                                                                                                         
                                                                                              
@@ -36,6 +37,10 @@ export function sourceError(code                 , message        )        {
   error.name = code
   return error
 }
+
+// GitHub answers 403 or 429 when it's rate-limiting; that's a pause, not a bad token.
+const isRateLimited = (res          ) =>
+  (res.status === 403 || res.status === 429) && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after'))
 
 async function getJson   (url        , init              )             {
   let res          
@@ -57,11 +62,11 @@ export function localSource()         {
     projects: () => getJson      ('/api/projects'),
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
-    summarise: async (path, index, isRedo) => {
+    summarise: async (path, index, isRedo, hash) => {
       const res = await fetch('/api/summarise', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-hub': '1' },
-        body: JSON.stringify({ path, section: index, redo: isRedo }),
+        body: JSON.stringify({ path, section: index, redo: isRedo, hash }),
       })
       return (await res.json())                
     },
@@ -116,6 +121,8 @@ export function destinationOf(settings                )         {
                                
                                
                                  
+                                                                                       
+                           
                
  
 
@@ -167,6 +174,7 @@ export function githubSource(settings                , signal              )    
     } catch {
       throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
     }
+    if (isRateLimited(res)) throw sourceError('other', 'GitHub is limiting requests for now. Try again in a few minutes.')
     if (res.status === 401 || res.status === 403) {
       throw sourceError('auth', `GitHub refused the token (${res.status}). It may have expired or been revoked: make a new one in Settings.`)
     }
@@ -209,18 +217,21 @@ export function githubSource(settings                , signal              )    
     const records = Object.keys(texts).filter(p => !p.startsWith(`${PHONE_DIR}/`))
     const edits                         = {}
     const days                           = {}
+    const daysIncomplete           = []
     if (records.length > 0) {
       // For each record, its newest commit (when and by which machine) and its commits over the chart's 14 days.
       const since = JSON.stringify(new Date(Date.now() - (CHART_DAYS + 1) * DAY_MS).toISOString())
       const history = await graphql  
-                                                                                                                             
+                           
+                                                                                                                                       
+                
         (
         wrap(
           `defaultBranchRef { target { ... on Commit { ${records
             .map(
               (p, i) =>
                 `e${i}: history(first: 1, path: ${JSON.stringify(p)}) { nodes { committedDate messageHeadline } }\n` +
-                `d${i}: history(first: 40, since: ${since}, path: ${JSON.stringify(p)}) { nodes { committedDate } }`,
+                `d${i}: history(first: 100, since: ${since}, path: ${JSON.stringify(p)}) { pageInfo { hasNextPage } nodes { committedDate } }`,
             )
             .join('\n')} } } }`,
         ),
@@ -230,6 +241,9 @@ export function githubSource(settings                , signal              )    
         const node = target?.[`e${i}`]?.nodes[0]
         if (node) edits[p] = { atMs: Date.parse(node.committedDate), by: commitBy(node.messageHeadline ?? '', hosts) }
         days[p] = [...new Set((target?.[`d${i}`]?.nodes ?? []).map(n => dayKeyOf(Date.parse(n.committedDate))))]
+        // More than a page of commits in the window: the chart says this record's history is incomplete here, rather
+        // than silently dropping its earlier days.
+        if (target?.[`d${i}`]?.pageInfo?.hasNextPage) daysIncomplete.push(p)
       })
     }
 
@@ -239,7 +253,7 @@ export function githubSource(settings                , signal              )    
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -326,7 +340,11 @@ function projectsFrom(s          )            {
     if (index === undefined) continue
     for (const row of parseIndexRows(index)) {
       const file = row.fileName ? `memory/${machine}/projects/${row.fileName}` : ''
-      list.push(buildProject(machine, row, s.texts[file] ?? '', s.edits[file], Date.now(), list.length, s.owner ?? '', s.days?.[file] ?? []))
+      list.push(buildProject(machine, row, s.texts[file] ?? '', s.edits[file], Date.now(), list.length, {
+          owner: s.owner ?? '',
+          updatedDays: s.days?.[file] ?? [],
+          activityComplete: !(s.daysIncomplete ?? []).includes(file),
+        }))
     }
   }
   return pairProjects(list)
