@@ -28,6 +28,8 @@
                   
                
                        
+                                                                                                               
+                       
                
                                                                         
                                                  
@@ -189,6 +191,8 @@ export function fmtStamp(ms        , nowMs        )         {
 // ---------- indexes and records ----------
 
 export const plain = (text        ) => text.replace(/\*\*|`/g, '').trim()
+// Markdown as plain text for places that can't show links: bold and code marks dropped, links reduced to their text.
+export const textOf = (md        ) => plain(md.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'))
 
 export function parseIndexRows(index        )             {
   const rows             = []
@@ -212,6 +216,7 @@ export function buildProject(
   nowMs        ,
   order        ,
   owner = '',
+  updatedDays           = [],
 )          {
   const state = plain(row.state)
   const dates = [...datesIn(headerOf(record), nowMs), ...datesIn(row.state, nowMs)]
@@ -229,6 +234,7 @@ export function buildProject(
     pairFile: '',
     order,
     status: statusOf(flags, facts.waits),
+    updatedDays,
     ...facts,
   }
 }
@@ -269,6 +275,18 @@ export function parseEditLog(log        , hosts        = {})                    
     const line = raw.trim()
     if (line.startsWith('@')) current = parseCommit(line.slice(1), hosts)
     else if (line !== '' && current !== null && !(line in out)) out[line] = current
+  }
+  return out
+}
+
+// The same log: the local days (as day keys) on which each file changed, newest first, each day once.
+export function parseEditDays(log        )                           {
+  const out                           = {}
+  let day                = null
+  for (const raw of log.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('@')) day = dayKeyOf(parseCommit(line.slice(1)).atMs)
+    else if (line !== '' && day !== null && !(out[line] ??= []).includes(day)) out[line].push(day)
   }
   return out
 }
@@ -450,13 +468,15 @@ const escapeRegExp = (s        ) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // Sentences where work waits on the owner: a decision, choice, approval, go-ahead or action that's theirs. It's a
 // keyword heuristic, so the app quotes the sentence rather than interpreting it, and it can miss some.
-                                                            
+                                                                                   
 function waitPatterns(owner        )               {
-  if (!owner) return { anywhere: [], inNext: [] }
+  if (!owner) return { stated: null, anywhere: [], inNext: [] }
   const n = escapeRegExp(owner)
   const asks = '(?:decision|choice|approval|go-ahead|review|input|answer|sign-off|confirmation|call)'
   const acts = '(?:decide|choose|pick|approve|confirm|review|start|launch|run|test|check|install|reply|answer|sign off|accept)'
   return {
+    // A checkpoint stating the hold outright ("**Waiting on Sam:** …", "Decision for Sam: …") always counts.
+    stated: new RegExp(`^(?:\\*\\*)?(?:waiting (?:on|for)|needs|decisions? for|questions? for)\\s+${n}\\b[^:]{0,30}:`, 'i'),
     anywhere: [
       new RegExp(`\\b(?:wait(?:s|ing)?|await(?:s|ing)?|held|holds|pending|parked|paused|blocked)\\b[^.;]{0,30}?\\b(?:on|for|until)\\s+${n}\\b`, 'i'),
       new RegExp(`\\bpending\\s+${n}\\b`, 'i'),
@@ -471,8 +491,10 @@ function waitPatterns(owner        )               {
 }
 // "Next: …", "**Next:** …" or "**Next**: …", as a line or a list item.
 const NEXT_LINE = /^\s*(?:[-*+]\s+)?(?:\*\*next:\*\*|\*\*next\*\*:|next:)\s*(.*)$/i
-// A wait that has ended or is only being reported: these sentences are history, not a current ask.
-const NOT_WAITING = /\b(?:no longer|not (?:waiting|needed|blocked)|was waiting|were waiting|waited|resolved|withdrawn|superseded)\b/i
+// A wait that has ended or is only being reported: these sentences are history, not a current ask. "Sentences where
+// work waits on Sam" describes a kind of wait rather than making one (found on a real record, 4 Oct).
+const NOT_WAITING =
+  /\b(?:no longer|not (?:waiting|needed|blocked)|was waiting|were waiting|waited|resolved|withdrawn|superseded)\b|\b(?:where|whenever|when)\s+(?:\w+\s+){0,2}(?:waits?|is waiting)\b/i
 
 // The sentences of some markdown, with list markers and struck-out text removed.
 function sentencesOf(md        )           {
@@ -489,13 +511,13 @@ function findWaits(md        , where        , patterns              , isNext = f
   if (patterns.anywhere.length === 0) return []
   return sentencesOf(md)
     .filter(s => {
+      if (patterns.stated?.test(s)) return true
       // Quoted text ("…", “…”, `…`) is someone else's words or an example, never the record's own ask.
       const bare = s.replace(/"[^"]*"|“[^”]*”|`[^`]*`/g, ' ')
       const usable = isNext || NEXT_LINE.test(s) ? [...patterns.anywhere, ...patterns.inNext] : patterns.anywhere
       return usable.some(p => p.test(bare)) && !NOT_WAITING.test(bare)
     })
-    // Quoted as plain text: bold and code marks dropped, and links reduced to their text.
-    .map(s => ({ text: plain(s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).slice(0, 280), where }))
+    .map(s => ({ text: textOf(s).slice(0, 280), where }))
 }
 
 // Claude or Codex, when the text names exactly one of them; Codeg when the work ran inside it.
@@ -852,7 +874,7 @@ const n1 = (n        ) => n.toFixed(1)
 // Class names are prefixed, since the SVG may sit inline in a page with its own styles.
 const CHART_CSS =
   '.hub-d{fill:#2a78d6}.hub-l{fill:#eb6834}.hub-base{stroke:#c3c2b7;stroke-width:1}.hub-hit{fill:transparent}' +
-  '.hub-col:hover .hub-hit{fill:rgba(137,135,129,.14)}.hub-lbl{fill:#898781;font:10px system-ui,sans-serif}.hub-now{font-weight:700}' +
+  '.hub-col:hover .hub-hit{fill:rgba(137,135,129,.14)}.hub-lbl{fill:#898781;font:10px system-ui,sans-serif}.hub-now,.hub-val{font-weight:700}' +
   '@media (prefers-color-scheme: dark){.hub-d{fill:#3987e5}.hub-l{fill:#d95926}.hub-base{stroke:#383835}}'
 
 function topRounded(x        , y        , w        , h        , cls        )         {
@@ -863,38 +885,42 @@ function topRounded(x        , y        , w        , h        , cls        )    
   )
 }
 
-// Stacked columns: records whose written checkpoint falls on each of the last 14 days, by machine.
-export function activityChart(list           , nowMs        , width        ) {
+// Records updated on each of the last 14 days, by machine: a record counts once on each day a commit changed it.
+// (Each machine only writes its own records, so the record's machine is the one that updated it.)
+                                                                              
+export function activityDays(list           , nowMs        )                {
   const today = todayKey(nowMs)
-  const height = 74
-  const base = 58
+  const cols                = Array.from({ length: CHART_DAYS }, (_, i) => ({ day: today - (CHART_DAYS - 1 - i) * DAY_MS, desktop: [], laptop: [] }))
+  for (const p of list) {
+    for (const day of p.updatedDays ?? []) cols.find(c => c.day === day)?.[p.machine].push(p.name)
+  }
+  return cols
+}
+
+// The same as a stacked column chart, with each day's count over its column and the names in its tooltip.
+export function activityChart(list           , nowMs        , width        ) {
+  const cols = activityDays(list, nowMs)
+  const height = 86
+  const base = 70
+  const top = 14
   const slot = width / CHART_DAYS
   const barW = Math.max(4, Math.min(18, slot - 6))
-  const cols = Array.from({ length: CHART_DAYS }, (_, i) => ({
-    day: today - (CHART_DAYS - 1 - i) * DAY_MS,
-    desktop: []            ,
-    laptop: []            ,
-  }))
-  let outside = 0
-  for (const p of list) {
-    const col = p.checkedMs === null ? undefined : cols.find(c => c.day === p.checkedMs)
-    if (col) col[p.machine].push(p.name)
-    else outside += 1
-  }
-  const max = Math.max(4, ...cols.map(c => c.desktop.length + c.laptop.length))
-  const unit = (base - 6) / max
+  const max = Math.max(3, ...cols.map(c => c.desktop.length + c.laptop.length))
+  const unit = (base - top) / max
   const parts           = []
   const alt           = []
+  const total = list.filter(p => (p.updatedDays ?? []).some(d => cols[0].day <= d)).length
 
   cols.forEach((c, i) => {
     const x = i * slot + (slot - barW) / 2
     const hD = c.desktop.length * unit
     const hL = c.laptop.length * unit
+    const count = c.desktop.length + c.laptop.length
     const label = fmtDay(c.day)
     const names = [...c.desktop.map(n => `${n} (desktop)`), ...c.laptop.map(n => `${n} (laptop)`)]
     const tip =
       names.length === 0
-        ? `${label}: none`
+        ? `${label}: no records updated`
         : `${label}: ${c.desktop.length} desktop, ${c.laptop.length} laptop\n${names.slice(0, 10).join('\n')}` +
           (names.length > 10 ? `\n+${names.length - 10} more` : '')
     let g = `<g class="hub-col"><title>${esc(tip)}</title><rect class="hub-hit" x="${n1(i * slot)}" y="0" width="${n1(slot)}" height="${base}"/>`
@@ -905,6 +931,9 @@ export function activityChart(list           , nowMs        , width        ) {
           : topRounded(x, base - hD, barW, hD, 'hub-d')
     }
     if (hL > 0) g += topRounded(x, base - hD - (hD > 0 ? 2 : 0) - hL, barW, hL, 'hub-l')
+    if (count > 0) {
+      g += `<text class="hub-lbl hub-val" x="${n1(i * slot + slot / 2)}" y="${n1(base - hD - hL - (hD > 0 && hL > 0 ? 2 : 0) - 3)}" text-anchor="middle">${count}</text>`
+    }
     if (slot >= 16 || i % 2 === (CHART_DAYS - 1) % 2) {
       const cls = i === CHART_DAYS - 1 ? 'hub-lbl hub-now' : 'hub-lbl'
       g += `<text class="${cls}" x="${n1(i * slot + slot / 2)}" y="${height - 3}" text-anchor="middle">${new Date(c.day).getUTCDate()}</text>`
@@ -913,15 +942,23 @@ export function activityChart(list           , nowMs        , width        ) {
     if (names.length > 0) alt.push(`${label}: ${c.desktop.length} desktop, ${c.laptop.length} laptop`)
   })
 
+  const title = `Records updated per day, last ${CHART_DAYS} days`
   const source =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n1(width)}" height="${height}" viewBox="0 0 ${n1(width)} ${height}" role="img" aria-label="${esc(`Checkpoints written per day, last ${CHART_DAYS} days. ${alt.join('; ') || 'None.'}`)}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n1(width)}" height="${height}" viewBox="0 0 ${n1(width)} ${height}" role="img" aria-label="${esc(`${title}. ${alt.join('; ') || 'None.'}`)}">` +
     `<style>${CHART_CSS}</style><line class="hub-base" x1="0" x2="${n1(width)}" y1="${base + 0.5}" y2="${base + 0.5}"/>` +
     `${parts.join('')}</svg>`
-  return {
-    source,
-    alt: `Checkpoints written per day, last ${CHART_DAYS} days. ${alt.join('; ') || 'None.'}`,
-    width,
-    height,
-    outside,
-  }
+  return { source, alt: `${title}. ${alt.join('; ') || 'None.'}`, width, height, total }
+}
+
+// The same days as text, for surfaces that can't follow the page's theme in an SVG (the pane): one row of block
+// characters per machine, scaled to the busiest day, and the count for each row.
+const BLOCKS = ' ▁▂▃▄▅▆▇█'
+export function activitySparks(list           , nowMs        )                                                      {
+  const cols = activityDays(list, nowMs)
+  const max = Math.max(1, ...cols.map(c => Math.max(c.desktop.length, c.laptop.length)))
+  return MACHINES.map(machine => ({
+    machine,
+    bars: cols.map(c => (c[machine].length === 0 ? '·' : BLOCKS[Math.max(1, Math.round((c[machine].length / max) * 8))])).join(''),
+    count: new Set(cols.flatMap(c => c[machine])).size,
+  }))
 }

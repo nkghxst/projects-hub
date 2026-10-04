@@ -153,7 +153,7 @@ export function renderList(data      , width        )         {
         ${k.behind > 0 ? `<span>${dot('good', '⚡')} ${k.behind} with newer local work</span>` : ''}
       </div>
       <section class="card chart">
-        <div class="muted">Checkpoints written per day, last 14 days${chart.outside > 0 ? ` (${chart.outside} earlier or undated not shown)` : ''}</div>
+        <div class="muted">Records updated per day, last 14 days (${chart.total} record${chart.total === 1 ? '' : 's'} in all); hover a day for names</div>
         ${chart.source}
         <div class="legend"><span>${dot('desktop', '■')} Desktop</span><span>${dot('laptop', '■')} Laptop</span></div>
       </section>

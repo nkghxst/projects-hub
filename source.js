@@ -1,7 +1,7 @@
 // Where the hub's data comes from. On the desktop, the local hub server (live Codeg work, summaries, notes as of the
 // last sync). On the phone, GitHub: the private claude-profile repo read through the GraphQL API with the owner's own
 // fine-grained token, and notes written through the contents API. Both give the views the same shapes.
-import { buildProject, commitBy, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, PHONE_DIR } from './core.js'
+import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, PHONE_DIR } from './core.js'
                                                                                           
 
                     
@@ -108,7 +108,16 @@ export function destinationOf(settings                )         {
 }
 
                                                                                  
-                                                                                                                                                       
+                 
+              
+            
+              
+                
+                               
+                               
+                                 
+               
+ 
 
 const SNAPSHOT_PREFIX = 'hub.gh.snapshot.'
 const snapshotKey = (dest        ) => `${SNAPSHOT_PREFIX}${dest}`
@@ -199,19 +208,28 @@ export function githubSource(settings                , signal              )    
 
     const records = Object.keys(texts).filter(p => !p.startsWith(`${PHONE_DIR}/`))
     const edits                         = {}
+    const days                           = {}
     if (records.length > 0) {
+      // For each record, its newest commit (when and by which machine) and its commits over the chart's 14 days.
+      const since = JSON.stringify(new Date(Date.now() - (CHART_DAYS + 1) * DAY_MS).toISOString())
       const history = await graphql  
-                                                                                                                            
+                                                                                                                             
         (
         wrap(
           `defaultBranchRef { target { ... on Commit { ${records
-            .map((p, i) => `e${i}: history(first: 1, path: ${JSON.stringify(p)}) { nodes { committedDate messageHeadline } }`)
+            .map(
+              (p, i) =>
+                `e${i}: history(first: 1, path: ${JSON.stringify(p)}) { nodes { committedDate messageHeadline } }\n` +
+                `d${i}: history(first: 40, since: ${since}, path: ${JSON.stringify(p)}) { nodes { committedDate } }`,
+            )
             .join('\n')} } } }`,
         ),
       )
       records.forEach((p, i) => {
-        const node = history.defaultBranchRef?.target[`e${i}`]?.nodes[0]
-        if (node) edits[p] = { atMs: Date.parse(node.committedDate), by: commitBy(node.messageHeadline, hosts) }
+        const target = history.defaultBranchRef?.target
+        const node = target?.[`e${i}`]?.nodes[0]
+        if (node) edits[p] = { atMs: Date.parse(node.committedDate), by: commitBy(node.messageHeadline ?? '', hosts) }
+        days[p] = [...new Set((target?.[`d${i}`]?.nodes ?? []).map(n => dayKeyOf(Date.parse(n.committedDate))))]
       })
     }
 
@@ -221,7 +239,7 @@ export function githubSource(settings                , signal              )    
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -308,7 +326,7 @@ function projectsFrom(s          )            {
     if (index === undefined) continue
     for (const row of parseIndexRows(index)) {
       const file = row.fileName ? `memory/${machine}/projects/${row.fileName}` : ''
-      list.push(buildProject(machine, row, s.texts[file] ?? '', s.edits[file], Date.now(), list.length, s.owner ?? ''))
+      list.push(buildProject(machine, row, s.texts[file] ?? '', s.edits[file], Date.now(), list.length, s.owner ?? '', s.days?.[file] ?? []))
     }
   }
   return pairProjects(list)
