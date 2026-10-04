@@ -4,13 +4,16 @@ import { escapeHtml as esc } from './markdown.js'
 import { machineName, noteCard, projectName } from './parts.js'
 import { captureHref } from './routes.js'
 import { pageOwner, tokenTemplateUrl } from './source.js'
-import { state, UNKNOWN_DEST } from './state.js'
+import { deviceName, state, UNKNOWN_DEST } from './state.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
 export function renderInbox()         {
   const kind = state.inboxKind
-  const notes = state.notes.filter(n => kind === 'all' || n.kind === kind)
+  const status = state.inboxState
+  const notes = state.notes
+    .filter(n => kind === 'all' || n.kind === kind)
+    .filter(n => status === 'all' || (status === 'handled' ? Boolean(n.handledAtMs) : !n.handledAtMs))
   const queued = state.queue.filter(q => kind === 'all' || q.kind === kind)
   const dest = state.source?.dest
   // Waiting notes, split by what's stopping them: nothing (they'll send), a conflict, or another repository.
@@ -27,14 +30,21 @@ export function renderInbox()         {
         ? 'Notes and ideas captured on the phone, as of this clone’s last profile sync.'
         : 'Notes and ideas from this phone, stored in claude-profile under memory/phone/.'
     }</p>
-    <div class="segmented">
-      ${(['all', 'note', 'idea']         )
-        .map(k => `<button data-action="inbox-kind" data-value="${k}" class="${kind === k ? 'on' : ''}" aria-pressed="${kind === k}">${k === 'all' ? 'All' : k === 'note' ? 'Notes' : 'Ideas'}</button>`)
-        .join('')}
+    <div class="toolbar">
+      <div class="segmented" aria-label="Show">
+        ${(['new', 'handled', 'all']         )
+          .map(k => `<button data-action="inbox-state" data-value="${k}" class="${status === k ? 'on' : ''}" aria-pressed="${status === k}">${k === 'new' ? 'New' : k === 'handled' ? 'Handled' : 'Everything'}</button>`)
+          .join('')}
+      </div>
+      <div class="segmented" aria-label="Kind">
+        ${(['all', 'note', 'idea']         )
+          .map(k => `<button data-action="inbox-kind" data-value="${k}" class="${kind === k ? 'on' : ''}" aria-pressed="${kind === k}">${k === 'all' ? 'All' : k === 'note' ? 'Notes' : 'Ideas'}</button>`)
+          .join('')}
+      </div>
     </div>
     ${
       sending.length > 0
-        ? `<section class="queue"><div class="label">Saved on this phone, waiting to send (${sending.length})${state.queueError ? `: ${esc(state.queueError)}` : ''}
+        ? `<section class="queue"><div class="label">Saved on ${deviceName()}, waiting to send (${sending.length})${state.queueError ? `: ${esc(state.queueError)}` : ''}
             <button class="link" data-action="retry">Retry now</button></div>${sending.map(q => noteCard(q, true)).join('')}</section>`
         : ''
     }
@@ -109,7 +119,11 @@ export function renderCapture()         {
         <button class="primary" type="submit">Save</button>
         <button type="button" data-action="clear-draft">Clear</button>
       </div>
-      <p class="muted small">Saved on this phone straight away, then sent to claude-profile (memory/phone/) when there's a connection. Don't put passwords or tokens in notes.</p>
+      <p class="muted small">${
+        state.mode === 'local'
+          ? "Saved to this computer's claude-profile clone (memory/desktop/); the next profile sync publishes it, so the phone sees it after that."
+          : "Saved on this phone straight away, then sent to claude-profile (memory/phone/) when there's a connection."
+      } Don't put passwords or tokens in notes.</p>
     </form>`
 }
 

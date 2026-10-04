@@ -1,17 +1,18 @@
 // Small pieces several views share: marks, names, links, flag chips, the live-work box and note cards.
-import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, parseNote, resolvePath } from './core.js'
+import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, noteOrigin, parseNote, resolvePath } from './core.js'
                                                                    
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
 import { recordHref } from './routes.js'
-import { settings, state, UNKNOWN_DEST } from './state.js'
+import { deviceName, settings, state, UNKNOWN_DEST } from './state.js'
                                         
 
 export const dot = (tone      , glyph = '●') => `<span class="mark" style="color:${HEX[tone]}">${glyph}</span>`
 export const machineName = (m         ) => (m === 'desktop' ? 'Desktop' : 'Laptop')
 export const projectName = (file        ) =>
   state.data?.projects.find(p => p.file === file)?.name ?? file.split('/').pop()?.replace(/\.md$/, '') ?? file
-export const notesFor = (file        ) => state.notes.filter(n => n.project === file)
+// A project's notes that are still open (handled ones are in the inbox's Handled filter).
+export const notesFor = (file        ) => state.notes.filter(n => n.project === file && !n.handledAtMs)
 // Waiting notes for a project, in the repository now in use (held ones for another repository show in the inbox).
 export const queuedFor = (file        ) => state.queue.filter(q => q.project === file && q.dest === state.source?.dest)
 
@@ -113,7 +114,7 @@ export function noteCard(n               , isQueued         , hold              
         ? ` · held: written for ${dest}`
         : hold === 'unknown-repo'
           ? ' · held: repository unknown'
-          : ` · saved on this phone, waiting to send to ${dest}`
+          : ` · saved on ${deviceName()}, waiting to send to ${dest}`
   const id = 'id' in n ? n.id : ''
   const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile)
   const actions = isQueued
@@ -124,6 +125,23 @@ export function noteCard(n               , isQueued         , hold              
       </div>`
     : ''
   const conflict = 'conflict' in n && n.conflict ? `<p class="error small">${esc(n.conflict)}</p>` : ''
+  // A sent note says where it was captured, whether it's been handled (when, and on which device), and can be marked
+  // handled or reopened; the note itself never changes, the mark is a separate file.
+  const sent = isQueued ? null : (n        )
+  const canMark = Boolean(sent && state.source?.mark)
+  const lifecycle = sent
+    ? `<div class="actions small">
+        <span class="muted">from ${esc(noteOrigin(sent.path))}${sent.handledAtMs ? ` · handled ${esc(fmtStamp(sent.handledAtMs, Date.now()))} on ${esc(sent.handledBy ?? '')}` : ''}</span>
+        ${
+          canMark
+            ? sent.handledAtMs
+              ? `<button class="link" data-action="reopen" data-value="${esc(sent.path)}">Reopen</button>`
+              : `<button class="link" data-action="mark-handled" data-value="${esc(sent.path)}">✓ Mark handled</button>`
+            : ''
+        }
+        <button class="link muted" data-action="copy" data-text="${esc(`${sent.title}\n\n${sent.body}${sent.source ? `\n\n${sent.source}` : ''}`)}">Copy</button>
+      </div>`
+    : ''
   return `
     <article class="card note ${isQueued ? 'queued' : ''}">
       <div class="note-head">
@@ -136,5 +154,6 @@ export function noteCard(n               , isQueued         , hold              
       ${source}
       ${conflict}
       ${actions}
+      ${lifecycle}
     </article>`
 }

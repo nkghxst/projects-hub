@@ -20,6 +20,7 @@ import {
   saveDraft,
   saveSettings,
   sendHeldHere,
+  setHandled,
   setDraftKind,
   setFilters,
   summarise,
@@ -27,7 +28,7 @@ import {
 } from './actions.js'
 import { captureHref, currentRoute } from './routes.js'
 import { EPOCH_KEY, localSource, snapshotSaveProblem } from './source.js'
-import { changed, isConfigured, onChange, QUEUE_PREFIX, REFRESH_MS, refreshQueue, state, toast } from './state.js'
+import { changed, isConfigured, onChange, openNotes, QUEUE_PREFIX, REFRESH_MS, refreshQueue, state, toast } from './state.js'
                                          
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
@@ -41,15 +42,36 @@ const view = document.getElementById('view')
 // Banners (loading problems, offline, storage) sit in a polite live region, so a screen reader hears them change.
 const bannerBox = document.getElementById('banners')               
 const nav = document.getElementById('nav')               
+const tabbar = document.getElementById('tabbar')               
 const loadedLabel = document.getElementById('loaded')               
 
+// Open notes plus ones still waiting to send: what the Inbox count shows.
+const inboxCount = () => openNotes().length + state.queue.length
+
+// The top bar. On a phone, Inbox and New move to the bottom bar (CSS hides the "wide" ones), leaving Settings and
+// Refresh up here.
 function renderNav() {
-  const inboxCount = state.notes.length + state.queue.length
+  const count = inboxCount()
+  const route = currentRoute().name
   nav.innerHTML = `
-    <a class="button" href="#/inbox" title="Notes and ideas from the phone"${currentRoute().name === 'inbox' ? ' aria-current="page"' : ''}>Inbox${inboxCount > 0 ? ` (${inboxCount})` : ''}</a>
-    ${state.source?.createFile ? `<a class="button primary" href="${captureHref()}">✎ Note</a>` : ''}
-    ${state.mode === 'github' ? `<a class="button" href="#/settings" title="Settings" aria-label="Settings"${currentRoute().name === 'settings' ? ' aria-current="page"' : ''}>⚙</a>` : ''}
+    <a class="button wide" href="#/inbox" title="Notes and ideas"${route === 'inbox' ? ' aria-current="page"' : ''}>Inbox${count > 0 ? ` (${count})` : ''}</a>
+    ${state.source?.createFile ? `<a class="button primary wide" href="${captureHref()}">✎ Note</a>` : ''}
+    ${state.mode === 'github' ? `<a class="button" href="#/settings" title="Settings" aria-label="Settings"${route === 'settings' ? ' aria-current="page"' : ''}>⚙</a>` : ''}
     <button data-action="refresh" title="Refresh (shortcut: r)" aria-label="Refresh">↻</button>`
+}
+
+// The phone's bottom bar, within thumb reach: Projects, Inbox, New and Search. CSS shows it on narrow screens only and
+// hides it while capturing, when the keyboard needs the room.
+function renderTabbar() {
+  const route = currentRoute().name
+  const count = inboxCount()
+  const tab = (href        , icon        , label        , isOn         ) =>
+    `<a href="${href}"${isOn ? ' aria-current="page"' : ''}><span class="tab-icon" aria-hidden="true">${icon}</span>${label}</a>`
+  tabbar.innerHTML = `
+    ${tab('#/', '▦', 'Projects', route === 'list' || route === 'record')}
+    ${tab('#/inbox', '✉', count > 0 ? `Inbox <span class="tab-count">${count}</span>` : 'Inbox', route === 'inbox')}
+    ${state.source?.createFile ? tab(captureHref(), '✎', 'New', route === 'capture') : ''}
+    <button type="button" data-action="search"><span class="tab-icon" aria-hidden="true">⌕</span>Search</button>`
 }
 
 // A redraw (say, data arriving mid-typing) keeps the cursor where it was: same field, same selection.
@@ -113,6 +135,8 @@ function render() {
   if (bannerBox.innerHTML !== bannerHtml) bannerBox.innerHTML = bannerHtml
   view.innerHTML = html
   renderNav()
+  renderTabbar()
+  document.body.dataset.route = r.name
 
   const at = new Date(state.loadedAt)
   loadedLabel.textContent = state.loadedAt ? `${pad(at.getHours())}:${pad(at.getMinutes())}` : ''
@@ -129,6 +153,13 @@ document.addEventListener('click', async event => {
   const value = target.dataset.value ?? ''
   if (action === 'machine') setFilters({ machine: value                       })
   else if (action === 'clear') setFilters({ machine: 'all', query: '' })
+  else if (action === 'mark-handled') await setHandled(value, true)
+  else if (action === 'reopen') await setHandled(value, false)
+  else if (action === 'search') {
+    // The filter box on the home page: go there, then put the cursor in it.
+    if (currentRoute().name !== 'list') location.hash = '#/'
+    setTimeout(() => (document.getElementById('query')                           )?.focus(), 60)
+  }
   else if (action === 'next-more') {
     state.nextMore = !state.nextMore
     changed()
@@ -163,6 +194,9 @@ document.addEventListener('click', async event => {
     changed()
   } else if (action === 'inbox-kind') {
     state.inboxKind = value                    
+    changed()
+  } else if (action === 'inbox-state') {
+    state.inboxState = value                             
     changed()
   } else if (action === 'retry') await flushQueue()
   else if (action === 'draft-kind') setDraftKind(value            )

@@ -137,6 +137,8 @@ export const state = {
   pending: new Set        (),
   notes: []          ,
   inboxKind: 'all'                    ,
+  // The inbox shows open notes by default; handled ones are a filter away.
+  inboxState: 'new'                             ,
   queue: readQueue(),
   queueError: '',
   draft: { ...EMPTY_DRAFT }         ,
@@ -150,6 +152,12 @@ export const state = {
 
 // Pinned on this device: a pin on either record of a paired project counts for the project.
 export const isPinned = (p                                    ) => state.pins.has(p.file) || (p.pairFile !== '' && state.pins.has(p.pairFile))
+
+// Notes not yet marked handled: what the inbox count, project rows and record pages count.
+export const openNotes = () => state.notes.filter(n => !n.handledAtMs)
+
+// Where this device's notes go and what to call it, for the capture form and messages.
+export const deviceName = () => (state.mode === 'local' ? 'this computer' : 'this phone')
 
 export function refreshQueue() {
   state.queue = readQueue()

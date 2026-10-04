@@ -256,3 +256,29 @@ details.usage[open] > summary::before { content: '▾ '; }
 .usage-name { min-width: 4.5em; color: var(--muted); }
 .meter { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--code); overflow: hidden; }
 .meter > span { display: block; height: 100%; background: var(--accent); }
+
+/* The phone's bottom bar: four large targets within thumb reach, clear of the home indicator. Hidden on wide screens
+   and while capturing, when the keyboard needs the room; on phones the top bar keeps only Settings and Refresh. */
+.tabbar { display: none; }
+@media (max-width: 600px) {
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px);
+    border-top: 1px solid var(--line);
+  }
+  .tabbar a, .tabbar button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 52px; padding: 4px; border: none; border-radius: 10px; background: none;
+    color: var(--muted); font-size: 12.5px; text-decoration: none;
+  }
+  .tabbar [aria-current="page"] { color: var(--link); font-weight: 650; }
+  .tab-icon { font-size: 20px; line-height: 1; }
+  .tab-count { font-size: 11px; background: var(--accent-fill); color: #fff; border-radius: 999px; padding: 0 5px; }
+  body[data-route="capture"] .tabbar { display: none; }
+  #nav .wide { display: none; }
+  main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* A record keeps Back (and Add note) in reach while scrolling. */
+  body[data-route="record"] .crumbs { position: sticky; top: 49px; z-index: 2; background: var(--bg); padding: 6px 0; }
+}

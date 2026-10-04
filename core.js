@@ -313,15 +313,83 @@ export function parseHistory(log        , hosts        = {})           {
     .map(l => parseCommit(l, hosts))
 }
 
-// ---------- phone notes and ideas ----------
+// ---------- notes and ideas ----------
 
-// One file per note under memory/phone/, written only by the phone; the machines just pull them in.
-//   memory/phone/notes/2026-10-03-091502-short-title.md   a note on a project
-//   memory/phone/ideas/2026-10-03-091502-short-title.md   an idea, not tied to a project
-// A header of `key: value` lines (project first, for notes), a blank line, then the text.
+// One file per note, in the folder of the device that captured it, written only by that device:
+//   memory/phone/notes/2026-10-03-091502-short-title-<id>.md     from the phone
+//   memory/desktop/ideas/2026-10-03-091502-short-title-<id>.md   from the desktop app
+// A header of `key: value` lines (project first, for notes), a blank line, then the text. Whether a note has been
+// handled is recorded separately, as marks (below), so the original never changes.
 export const PHONE_DIR = 'memory/phone'
+export const DESKTOP_NOTES_DIR = 'memory/desktop'
+export const NOTE_DIRS = [PHONE_DIR, DESKTOP_NOTES_DIR]
                                       
-                                                                                                                                   
+                    
+              
+                
+                 
+               
+                  
+                
+              
+                                                                                                               
+                             
+                    
+ 
+export const noteOrigin = (path        ) => (path.startsWith('memory/desktop/') ? 'desktop' : path.startsWith('memory/laptop/') ? 'laptop' : 'phone')
+
+// A path a writer may create a note at: its own notes or ideas folder, and a stamped, slugged, ID-bearing name.
+export function isCapturePath(path        , dir        )          {
+  return new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(?:notes|ideas)/\\d{4}-\\d{2}-\\d{2}-\\d{6}-[a-z0-9-]+-[0-9a-f]{16}\\.md$`).test(path)
+}
+
+// ---------- handled marks ----------
+
+// Marking a note handled (or open again) writes a small file in the marking device's own folder, never touching the
+// note: memory/phone/handled/ for the phone, memory/desktop/hub/handled/ for the desktop app. Each mark is a new file
+// (create-only, like notes), and the newest mark for a note, from any device, decides.
+//   note: memory/phone/notes/2026-10-04-121449-test2-….md
+//   handled: yes
+//   at: 2026-10-04T13:00:00.000Z
+                                                                                      
+export const MARK_DIRS = [`${PHONE_DIR}/handled`, `${DESKTOP_NOTES_DIR}/hub/handled`]
+
+export function formatHandledMark(note        , handled         , nowMs        , id        , dir        )                                 {
+  const d = new Date(nowMs)
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  return { path: `${dir}/handled/${stamp}-${id}.md`, text: `note: ${note}\nhandled: ${handled ? 'yes' : 'no'}\nat: ${d.toISOString()}\n` }
+}
+
+export function isMarkPath(path        , dir        )          {
+  return path.startsWith(`${dir}/handled/`) && /\/\d{4}-\d{2}-\d{2}-\d{6}-[0-9a-f]{16}\.md$/.test(path)
+}
+
+export function parseHandledMark(path        , text        )                     {
+  const field = (key        ) => text.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1].trim() ?? ''
+  const note = field('note')
+  const handled = field('handled')
+  const atMs = Date.parse(field('at'))
+  if (!/^memory\/[\w./-]+\.md$/.test(note) || !/^(?:yes|no)$/.test(handled) || !Number.isFinite(atMs)) return null
+  return { note, handled: handled === 'yes', atMs, by: noteOrigin(path) }
+}
+
+// The newest mark for each note.
+export function handledNotes(marks                        )                           {
+  const out = new Map                     ()
+  for (const m of marks) if (m && (!out.has(m.note) || out.get(m.note) .atMs < m.atMs)) out.set(m.note, m)
+  return out
+}
+
+// Notes with their handled state filled in from the marks, newest first (file names start with the capture time).
+export function withHandled(notes        , marks                        )         {
+  const state = handledNotes(marks)
+  return notes
+    .map(n => {
+      const m = state.get(n.path)
+      return { ...n, handledAtMs: m?.handled ? m.atMs : null, handledBy: m?.handled ? m.by : '' }
+    })
+    .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
+}
 
 export function parseNote(path        , text        )       {
   const lines = text.replace(/\r/g, '').split('\n')
@@ -388,6 +456,7 @@ export function formatNote(
   draft                                                                                  ,
   nowMs        ,
   id         = noteId(),
+  dir         = PHONE_DIR,
 )                                             {
   const d = new Date(nowMs)
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
@@ -401,12 +470,12 @@ export function formatNote(
   ]
   return {
     id,
-    path: `${PHONE_DIR}/${draft.kind === 'idea' ? 'ideas' : 'notes'}/${stamp}-${slugify(title)}-${id}.md`,
+    path: `${dir}/${draft.kind === 'idea' ? 'ideas' : 'notes'}/${stamp}-${slugify(title)}-${id}.md`,
     text: `${header.join('\n')}\n\n${draft.body.trim()}\n`,
   }
 }
 
-// The same patterns sync.sh refuses to publish; phone commits never pass through sync.sh, so the app checks.
+// The same patterns sync.sh refuses to publish; notes don't all pass through sync.sh, so the app checks.
 export function looksLikeSecret(text        )          {
   return /gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|sk-ant-|sk-[A-Za-z0-9_-]{32,}|AKIA[0-9A-Z]{16}|xox[abprs]-|BEGIN [A-Z ]*PRIVATE KEY/.test(text)
 }

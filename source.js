@@ -1,7 +1,29 @@
 // Where the hub's data comes from. On the desktop, the local hub server (live Codeg work, summaries, notes as of the
 // last sync). On the phone, GitHub: the private claude-profile repo read through the GraphQL API with the owner's own
 // fine-grained token, and notes written through the contents API. Both give the views the same shapes.
-import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, parseUsageSnapshot, PHONE_DIR } from './core.js'
+import {
+  buildProject,
+  CHART_DAYS,
+  commitBy,
+  DAY_MS,
+  dayKeyOf,
+  DESKTOP_NOTES_DIR,
+  formatHandledMark,
+  MACHINES,
+  MARK_DIRS,
+  NOTE_DIRS,
+  noteId,
+  ownerOf,
+  pairProjects,
+  parseDoc,
+  parseHandledMark,
+  parseHosts,
+  parseIndexRows,
+  parseNote,
+  parseUsageSnapshot,
+  PHONE_DIR,
+  withHandled,
+} from './core.js'
                                                                                                         
 
                     
@@ -29,6 +51,10 @@ import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf
                                                                                                                  
                                                                                                         
                                                                                              
+                                                                                                                
+                                                                                              
+                   
+                                                          
  
 
 // An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
@@ -57,6 +83,17 @@ async function getJson   (url        , init              )             {
 
 // ---------- the desktop hub server ----------
 
+// A request that changes something: JSON, with the header the server requires of its own page.
+async function postHub   (url        , body         )             {
+  let res          
+  try {
+    res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub': '1' }, body: JSON.stringify(body) })
+  } catch {
+    throw sourceError('offline', 'The hub server is not answering')
+  }
+  return (await res.json().catch(() => ({ ok: false, error: `${res.status}` })))     
+}
+
 export function localSource()         {
   return {
     kind: 'local',
@@ -64,6 +101,17 @@ export function localSource()         {
     projects: () => getJson      ('/api/projects'),
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
+    notesDir: DESKTOP_NOTES_DIR,
+    // The desktop app writes through the hub server, into this clone's memory/desktop/; sync.sh publishes it.
+    createFile: async (path, text) => {
+      const reply = await postHub                                                                ('/api/capture', { path, text })
+      if (!reply.ok) throw sourceError(reply.error === 'conflict' ? 'conflict' : 'other', reply.error === 'conflict' ? `A different file already exists at ${path}; this note was kept here.` : (reply.error ?? 'The hub refused the note'))
+      return reply.result ?? 'created'
+    },
+    mark: async (note, handled) => {
+      const reply = await postHub                                 ('/api/mark', { note, handled })
+      if (!reply.ok) throw sourceError('other', reply.error ?? 'The hub refused the mark')
+    },
     summarise: async (path, index, isRedo, hash) => {
       const res = await fetch('/api/summarise', {
         method: 'POST',
@@ -202,6 +250,10 @@ export function githubSource(settings                , signal              )    
       pl: 'memory/laptop/projects',
       notes: `${PHONE_DIR}/notes`,
       ideas: `${PHONE_DIR}/ideas`,
+      dnotes: `${DESKTOP_NOTES_DIR}/notes`,
+      dideas: `${DESKTOP_NOTES_DIR}/ideas`,
+      pmarks: MARK_DIRS[0],
+      dmarks: MARK_DIRS[1],
     }
     const first = await graphql                                                                 (
       wrap([
@@ -224,7 +276,7 @@ export function githubSource(settings                , signal              )    
     const owner = ownerOf(first.profile?.text ?? '')
     const usage = MACHINES.flatMap(m => parseUsageSnapshot(first[`usage_${m}`]?.text ?? '')?.readings ?? [])
 
-    const records = Object.keys(texts).filter(p => !p.startsWith(`${PHONE_DIR}/`))
+    const records = Object.keys(texts).filter(p => /^memory\/(?:desktop|laptop)\/projects\//.test(p))
     const edits                         = {}
     const days                           = {}
     const daysIncomplete           = []
@@ -257,10 +309,16 @@ export function githubSource(settings                , signal              )    
       })
     }
 
-    const notes = Object.entries(texts)
-      .filter(([p]) => p.startsWith(`${PHONE_DIR}/`))
-      .map(([p, text]) => parseNote(p, text))
-      .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
+    const isIn = (p        , kinds          ) => kinds.some(k => p.startsWith(`${k}/`))
+    const noteDirs = NOTE_DIRS.flatMap(d => [`${d}/notes`, `${d}/ideas`])
+    const notes = withHandled(
+      Object.entries(texts)
+        .filter(([p]) => isIn(p, noteDirs))
+        .map(([p, text]) => parseNote(p, text)),
+      Object.entries(texts)
+        .filter(([p]) => isIn(p, MARK_DIRS))
+        .map(([p, text]) => parseHandledMark(p, text)),
+    )
 
     if (isRetired()) throw sourceError('other', 'Stopped')
     snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, notes }
@@ -305,44 +363,53 @@ export function githubSource(settings                , signal              )    
       return { ...parseDoc(path, text), history }
     },
     notes: async () => (await current()).notes,
-    createFile: async (path, text, message) => {
-      if (isRetired()) throw sourceError('other', 'Stopped: the app was reset or its settings changed')
-      const bytes = new TextEncoder().encode(text)
-      let binary = ''
-      for (const b of bytes) binary += String.fromCharCode(b)
-      let res          
-      try {
-        res = await fetch(contentsUrl(path), {
-          method: 'PUT',
-          headers: { ...headers, 'content-type': 'application/json' },
-          body: JSON.stringify({ message, content: btoa(binary) }),
-          signal,
-        })
-      } catch {
-        throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
-      }
-      if (res.status === 201 || res.status === 200) return 'created'
-      if (res.status === 401 || res.status === 403 || res.status === 404) {
-        throw sourceError('auth', `GitHub refused the note (${res.status}). The token needs Contents: read and write on ${settings.repo}.`)
-      }
-      if (res.status === 422) {
-        const detail = ((await res.json().catch(() => ({})))                        ).message ?? ''
-        if (!/\bsha\b/i.test(detail)) throw sourceError('other', `GitHub refused the note: ${detail || 'invalid request'}`)
-        // Something is already at this path. It counts as delivered only if it's exactly this note (a retry that
-        // arrived); anything else is a conflict to show, never a silent success.
-        let existing                = null
-        try {
-          const got = await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' }, signal })
-          if (got.ok) existing = await got.text()
-        } catch {
-          throw sourceError('offline', 'No connection to GitHub')
-        }
-        const same = (a        ) => a.replace(/\r\n/g, '\n').trimEnd()
-        if (existing !== null && same(existing) === same(text)) return 'exists'
-        throw sourceError('conflict', `A different file already exists at ${path}; this note was kept on the phone.`)
-      }
-      throw sourceError('other', `GitHub answered ${res.status}`)
+    notesDir: PHONE_DIR,
+    // A mark is a new small file in memory/phone/handled/, created like a note.
+    mark: async (note, handled) => {
+      const file = formatHandledMark(note, handled, Date.now(), noteId(), PHONE_DIR)
+      await createFile(file.path, file.text, `Phone: ${handled ? 'handled' : 'reopened'} ${note.split('/').pop()}`)
     },
+    createFile: async (path, text, message) => createFile(path, text, message),
+  }
+
+  // Creates a new file through the contents API (create-only: an existing path is never overwritten).
+  async function createFile(path        , text        , message        )                                {
+    if (isRetired()) throw sourceError('other', 'Stopped: the app was reset or its settings changed')
+    const bytes = new TextEncoder().encode(text)
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    let res          
+    try {
+      res = await fetch(contentsUrl(path), {
+        method: 'PUT',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ message, content: btoa(binary) }),
+        signal,
+      })
+    } catch {
+      throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
+    }
+    if (res.status === 201 || res.status === 200) return 'created'
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      throw sourceError('auth', `GitHub refused the note (${res.status}). The token needs Contents: read and write on ${settings.repo}.`)
+    }
+    if (res.status === 422) {
+      const detail = ((await res.json().catch(() => ({})))                        ).message ?? ''
+      if (!/\bsha\b/i.test(detail)) throw sourceError('other', `GitHub refused the note: ${detail || 'invalid request'}`)
+      // Something is already at this path. It counts as delivered only if it's exactly this note (a retry that
+      // arrived); anything else is a conflict to show, never a silent success.
+      let existing                = null
+      try {
+        const got = await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' }, signal })
+        if (got.ok) existing = await got.text()
+      } catch {
+        throw sourceError('offline', 'No connection to GitHub')
+      }
+      const same = (a        ) => a.replace(/\r\n/g, '\n').trimEnd()
+      if (existing !== null && same(existing) === same(text)) return 'exists'
+      throw sourceError('conflict', `A different file already exists at ${path}; this note was kept on the phone.`)
+    }
+    throw sourceError('other', `GitHub answered ${res.status}`)
   }
 }
 

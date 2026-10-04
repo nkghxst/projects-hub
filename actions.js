@@ -1,12 +1,13 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { formatNote, isWebUrl, looksLikeSecret } from './core.js'
-                                                  
+import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR } from './core.js'
+                                                        
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
                                          
 import {
   changed,
+  deviceName,
   dropQueued,
   EMPTY_DRAFT,
   errorText,
@@ -50,7 +51,7 @@ export async function loadAll() {
   }
   try {
     const notes = await source.notes()
-    if (generation === state.sourceGeneration) state.notes = notes
+    if (generation === state.sourceGeneration) state.notes = withLocalMarks(notes)
   } catch {
     // Keep the notes already shown.
   }
@@ -162,7 +163,9 @@ export async function flushQueue() {
   refreshQueue()
   changed()
   if (sent > 0 && generation === state.sourceGeneration) {
-    toast(sent === 1 ? 'Sent to GitHub' : `${sent} notes sent to GitHub`)
+    // The desktop app saves into this computer's clone (the next profile sync publishes it); the phone sends to GitHub.
+    const where = source.kind === 'local' ? "saved to this computer's claude-profile" : 'sent to GitHub'
+    toast(sent === 1 ? `${where[0].toUpperCase()}${where.slice(1)}` : `${sent} notes ${where}`)
     await loadAll()
     changed()
   }
@@ -245,15 +248,47 @@ export async function saveDraft() {
   }
   const source = state.source
   if (!source?.createFile) return toast('Connect to GitHub in Settings first')
-  const file = formatNote(d, Date.now(), newQueueId())
+  const file = formatNote(d, Date.now(), newQueueId(), source.notesDir ?? PHONE_DIR)
   const title = (d.title.trim() || d.body.trim().split('\n')[0] || d.source.trim()).slice(0, 80)
   const project = d.kind === 'note' ? d.project : ''
   putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), createdAt: Date.now() })
   refreshQueue()
   state.draft = { ...EMPTY_DRAFT, kind: d.kind }
-  toast('Saved on this phone')
+  toast(`Saved on ${deviceName()}`)
   location.hash = project ? recordHref(project) : '#/inbox'
   await flushQueue()
+}
+
+// Mark a note handled, or open again. The phone writes a mark file to GitHub; the desktop app through the hub server.
+// The note itself never changes. A mark needs a connection: offline, it says so rather than pretending.
+// Marks saved in this session, kept over loaded notes until a load agrees with them: a load that was already running
+// when a note was marked would otherwise bring back its older state for a moment.
+const localMarks = new Map                                                           ()
+function withLocalMarks(notes        )         {
+  return notes.map(n => {
+    const mark = localMarks.get(n.path)
+    if (!mark) return n
+    if (Boolean(n.handledAtMs) === Boolean(mark.handledAtMs)) {
+      localMarks.delete(n.path)
+      return n
+    }
+    return { ...n, ...mark }
+  })
+}
+
+export async function setHandled(note        , handled         ) {
+  const source = state.source
+  if (!source?.mark) return toast("Marking needs a connection to the repository")
+  try {
+    await source.mark(note, handled)
+    // Show it straight away; loads keep showing it until they bring it back from the marks themselves.
+    localMarks.set(note, { handledAtMs: handled ? Date.now() : null, handledBy: handled ? (source.kind === 'local' ? 'desktop' : 'phone') : '' })
+    state.notes = withLocalMarks(state.notes)
+    toast(handled ? 'Marked handled' : 'Reopened')
+    changed()
+  } catch (error) {
+    toast(`Couldn't save that: ${errorText(error)}`)
+  }
 }
 
 export function clearDraft() {
