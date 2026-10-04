@@ -232,3 +232,27 @@ details.activity > summary { list-style: none; }
 /* A keyword-matched ask, as opposed to one the record states outright. */
 .possible { font-size: 11.5px; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 6px; }
 details.help { margin-top: 6px; }
+
+/* The current brief: a short definition list, each line labelled with where it came from. */
+.brief-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.brief-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 4px; }
+.brief-rows dt { font-weight: 650; color: var(--muted); }
+.brief-rows dd { margin: 0; }
+.src { white-space: nowrap; }
+details.other-sections { margin-top: 12px; }
+details.other-sections > summary { color: var(--muted); padding: 4px 0; }
+details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.4em; }
+/* Comfortable reading width for prose on wide screens. */
+.brief, .section .rows, .section .md { max-width: 78ch; }
+@media (max-width: 600px) { .brief-rows { grid-template-columns: 1fr; gap: 2px; } .brief-rows dd { margin-bottom: 6px; } }
+
+/* Usage: one row per account, a slim meter per window. The meter is neutral: it shows an amount, not a status. */
+details.usage > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+details.usage > summary::before { content: '▸ '; color: var(--muted); }
+details.usage[open] > summary::before { content: '▾ '; }
+.usage-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.usage-row:first-of-type { border-top: none; }
+.usage-window { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; padding-left: 10px; }
+.usage-name { min-width: 4.5em; color: var(--muted); }
+.meter { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--code); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); }

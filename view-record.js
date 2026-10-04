@@ -1,7 +1,8 @@
-// One record: its meta, index row, live work, Next and Read first, actions, phone notes, then its sections in the
+// One record, opening on its current brief (State, Needs you, Next, Read first, each saying where it came from), then
+// live work, actions and phone notes, then the full current checkpoint and the record's other sections, folded, in the
 // readable or as-written layout, with summaries where the desktop can write them, and its recent edit history.
 import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
-                                                       
+                                                            
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
 import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, providerTag, queuedFor } from './parts.js'
@@ -9,16 +10,68 @@ import { captureHref, recordHref } from './routes.js'
                                                                 
 import { isPinned, state } from './state.js'
 
+function rowHtml(r     , resolve              )         {
+  if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
+  const mark = ROW_MARKS[r.tone]
+  return `<div class="r ${r.tone === 'evidence' ? 'muted' : ''}" style="--depth:${r.depth}">
+    <span class="mark" style="color:${HEX[mark.tone]}" title="${esc(mark.label)}">${mark.glyph}</span>
+    <div>${inline(boldVerdicts(r.text), resolve)}</div></div>`
+}
+
+// Runs of two or more evidence lines (paths, hashes, commits) fold into "↳ N evidence lines", so the prose reads on;
+// nothing is dropped, and opening the fold shows them as written.
 function rowsHtml(md        , resolve              )         {
-  return readableRows(md)
-    .map(r => {
-      if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
-      const mark = ROW_MARKS[r.tone]
-      return `<div class="r ${r.tone === 'evidence' ? 'muted' : ''}" style="--depth:${r.depth}">
-        <span class="mark" style="color:${HEX[mark.tone]}" title="${esc(mark.label)}">${mark.glyph}</span>
-        <div>${inline(boldVerdicts(r.text), resolve)}</div></div>`
-    })
-    .join('')
+  const rows = readableRows(md)
+  const out           = []
+  for (let i = 0; i < rows.length; ) {
+    const r = rows[i]
+    let j = i
+    while (j < rows.length && rows[j].kind === 'line' && (rows[j]                    ).tone === 'evidence') j++
+    if (j - i >= 2) {
+      out.push(`<details class="evidence"><summary class="muted small">↳ ${j - i} evidence lines</summary>${rows.slice(i, j).map(x => rowHtml(x, resolve)).join('')}</details>`)
+      i = j
+    } else {
+      out.push(rowHtml(r, resolve))
+      i++
+    }
+  }
+  return out.join('')
+}
+
+// The opening view: what the record says now, from its own current lines, each labelled with where it came from.
+// Nothing is inferred: a missing line says "not stated", and a record with no dated current checkpoint says so.
+function briefHtml(p         , resolve              )         {
+  const src = (where        ) => `<span class="src muted small">(${esc(where)})</span>`
+  const state = p.stateLine
+    ? `${inline(p.stateLine, resolve)} ${src('current checkpoint')}`
+    : `${inline(p.state, resolve)} ${src('index row')}`
+  const waits = p.waits ?? []
+  const needs =
+    waits.length === 0
+      ? 'Nothing found waiting on you in the current checkpoint.'
+      : waits
+          .map(w => `<div>${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)} ${src(w.where === 'index row' || w.where === 'Next' ? w.where : 'current checkpoint')}</div>`)
+          .join('')
+  const nextSrc =
+    p.nextWhere === 'index row'
+      ? 'index row'
+      : p.isNextCurrent === false
+        ? `undated: ${p.nextWhere}`
+        : p.isNextQuoted
+          ? 'quoted from the current checkpoint'
+          : 'current checkpoint'
+  return `
+    <section class="card brief accent" aria-label="Current brief">
+      <div class="brief-head"><strong>Current brief</strong>
+        <span class="muted small">${p.currentTitle ? `from “${esc(p.currentTitle)}”` : 'This record has no dated current checkpoint; these lines are the best it states.'}</span></div>
+      <dl class="brief-rows">
+        <dt>State</dt><dd>${state}</dd>
+        <dt>Needs you</dt><dd>${needs}</dd>
+        <dt>Next</dt><dd>${p.next ? `${inline(p.next, resolve)} ${src(nextSrc)}` : 'Not stated.'}</dd>
+        <dt>Read first</dt><dd>${p.readFirst ? `${inline(p.readFirst, resolve)}${p.isReadFirstQuoted ? ` ${src('quoted from the current checkpoint')}` : ''}` : 'Not stated.'}</dd>
+      </dl>
+      ${p.stateLine ? `<div class="muted small">Index row: ${inline(p.state, resolve)}</div>` : ''}
+    </section>`
 }
 
 function briefPrompt(p         , behind                  , worktreeRoot        )         {
@@ -88,6 +141,8 @@ export function renderRecord(doc            , data             )         {
   const md = (text        ) => `<div class="md">${renderMarkdown(text, resolve)}</div>`
   const isAllOpen = doc.sections.every((_, i) => state.open.has(String(i)))
   const current = currentSectionIndex(doc.sections.map(x => x.title))
+  // With a dated current checkpoint, the brief is the opening view and the rest is folded beneath it.
+  const hasCurrent = doc.sections.some(x => /^(?:current|latest)\b/i.test(x.title))
   const other                      = p ? (p.machine === 'desktop' ? 'laptop' : 'desktop') : undefined
   const recordNotes = notesFor(doc.path)
   const recordQueue = queuedFor(doc.path)
@@ -104,18 +159,15 @@ export function renderRecord(doc            , data             )         {
         ? `<div class="meta">${dot(p.machine)} ${machineName(p.machine)} record · checkpoint ${p.checkedMs !== null ? `${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : 'not dated'}
             · edited ${p.editedMs !== null ? `${esc(fmtStamp(p.editedMs, now))} on ${esc(p.editedOn)}` : 'unknown'} ${providerTag(p)}</div>
            ${p.flags.length > 0 ? `<div class="chips">${chips(p)}</div>` : ''}
-           <section class="card"><div class="label">Index row</div>${md(p.state)}</section>`
-        : ''
+           ${briefHtml(p, resolve)}`
+        : doc.next || doc.readFirst
+          ? `<section class="card accent">
+              ${doc.next ? `<div class="label strong">Next</div>${md(doc.next)}` : ''}
+              ${doc.readFirst ? `<div class="label strong">Read first</div>${md(doc.readFirst)}` : ''}
+            </section>`
+          : ''
     }
     ${source && (behind || doc.path === source.records[0]) ? liveBox(source, now, false) : ''}
-    ${
-      doc.next || doc.readFirst
-        ? `<section class="card accent">
-            ${doc.next ? `<div class="label strong">Next</div>${md(doc.next)}` : ''}
-            ${doc.readFirst ? `<div class="label strong">Read first</div>${md(doc.readFirst)}` : ''}
-          </section>`
-        : ''
-    }
     <div class="actions">
       ${canCapture && p ? `<a class="button primary" href="${captureHref(doc.path)}">✎ Add note</a>` : ''}
       ${p && desktop ? `<button class="${canCapture ? '' : 'primary'}" data-action="copy" data-text="${esc(briefPrompt(p, behind, desktop.worktreeRoot))}" title="Paste into Claude">Copy “brief me” prompt</button>` : ''}
@@ -142,7 +194,19 @@ export function renderRecord(doc            , data             )         {
           : ''
       }
     </div>
-    ${doc.sections.map((s, i) => sectionHtml(s, i, i === current, resolve, md)).join('')}
+    ${
+      hasCurrent
+        ? `${sectionHtml(doc.sections[current], current, true, resolve, md)}
+           ${
+             doc.sections.length > 1
+               ? `<details class="other-sections" data-key="other-sections"${state.openDetails.has('other-sections') ? ' open' : ''}>
+                    <summary>Other sections (${doc.sections.length - 1}): earlier checkpoints, history and reference</summary>
+                    ${doc.sections.map((s, i) => (i === current ? '' : sectionHtml(s, i, false, resolve, md))).join('')}
+                  </details>`
+               : ''
+           }`
+        : doc.sections.map((s, i) => sectionHtml(s, i, i === current, resolve, md)).join('')
+    }
     ${
       doc.history.length > 0
         ? `<section class="history"><div class="label">Recent edits to this record</div>

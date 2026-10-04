@@ -76,7 +76,9 @@ export async function loadRecord(path        ) {
     if (isSameRecord) {
       state.open = new Set([...state.open].filter(k => Number(k) < record.sections.length))
     } else {
-      state.open = new Set(record.sections.length > 0 ? ['0'] : [])
+      // A record with a dated current checkpoint opens on its brief, sections closed; one without opens its first.
+      const hasCurrent = record.sections.some(x => /^(?:current|latest)\b/i.test(x.title))
+      state.open = new Set(!hasCurrent && record.sections.length > 0 ? ['0'] : [])
       state.liveMore = false
       state.pending = new Set()
     }

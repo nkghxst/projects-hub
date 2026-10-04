@@ -1,8 +1,8 @@
 // Where the hub's data comes from. On the desktop, the local hub server (live Codeg work, summaries, notes as of the
 // last sync). On the phone, GitHub: the private claude-profile repo read through the GraphQL API with the owner's own
 // fine-grained token, and notes written through the contents API. Both give the views the same shapes.
-import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, PHONE_DIR } from './core.js'
-                                                                                          
+import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, parseUsageSnapshot, PHONE_DIR } from './core.js'
+                                                                                                        
 
                     
              
@@ -10,6 +10,8 @@ import { buildProject, CHART_DAYS, commitBy, DAY_MS, dayKeyOf, MACHINES, ownerOf
               
                                                                             
                                                          
+                                                                                                      
+                        
  
                                                                                                
                                                                             
@@ -123,6 +125,8 @@ export function destinationOf(settings                )         {
                                  
                                                                                        
                            
+                                                                              
+                        
                
  
 
@@ -200,7 +204,12 @@ export function githubSource(settings                , signal              )    
       ideas: `${PHONE_DIR}/ideas`,
     }
     const first = await graphql                                                                 (
-      wrap([`sync: ${blob('sync.sh')}`, `profile: ${blob('profile.md')}`, ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`)].join('\n')),
+      wrap([
+        `sync: ${blob('sync.sh')}`,
+        `profile: ${blob('profile.md')}`,
+        ...MACHINES.map(m => `usage_${m}: ${blob(`memory/${m}/hub/usage.md`)}`),
+        ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`),
+      ].join('\n')),
     )
     const texts                         = {}
     for (const [alias, dir] of Object.entries(dirs)) {
@@ -213,6 +222,7 @@ export function githubSource(settings                , signal              )    
     const hosts = parseHosts(first.sync?.text ?? '')
     // The owner's name, so the home can find what waits on them (kept out of the published app).
     const owner = ownerOf(first.profile?.text ?? '')
+    const usage = MACHINES.flatMap(m => parseUsageSnapshot(first[`usage_${m}`]?.text ?? '')?.readings ?? [])
 
     const records = Object.keys(texts).filter(p => !p.startsWith(`${PHONE_DIR}/`))
     const edits                         = {}
@@ -253,7 +263,7 @@ export function githubSource(settings                , signal              )    
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -271,7 +281,10 @@ export function githubSource(settings                , signal              )    
     kind: 'github',
     dest,
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
-    projects: async () => ({ now: Date.now(), projects: projectsFrom(await load()), live: [] }),
+    projects: async () => {
+      const s = await load()
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage }
+    },
     record: async path => {
       const s = await current()
       let text = s.texts[path]
@@ -359,7 +372,7 @@ export function snapshotAge(settings                )                {
 export function snapshotProjects(settings                )              {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [] } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

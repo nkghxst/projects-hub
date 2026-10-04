@@ -25,6 +25,14 @@
                            
                    
                        
+                                                                                                                    
+                                                                                                 
+                   
+                      
+                                                                                                                     
+                                                                                    
+                       
+                            
  
 
                        
@@ -567,20 +575,32 @@ const CONDITIONAL = /^(?:\*\*[^*]*\*\*:?\s*)?(?:if|when|whenever|unless|should|i
 const STATED_NONE = /:\**\s*(?:none|nothing|n\/a|no\b|not now|resolved|done)\b/i
 const QUOTE_LIMIT = 280
 
-// The sentences of some markdown, with list markers, struck-out text and code blocks removed.
+// The sentences of some markdown, with list markers, struck-out text and code blocks removed. Hard-wrapped prose (a
+// line that carries on from one without a full stop, as some agents write) is joined first, so a sentence isn't cut at
+// the line break.
 function sentencesOf(md        )           {
-  const out           = []
+  const lines           = []
   let isCode = false
+  let canJoin = false
   for (const raw of md.replace(/\r/g, '').split('\n')) {
     if (/^\s*```/.test(raw)) {
       isCode = !isCode
+      canJoin = false
       continue
     }
     if (isCode) continue
+    const isItem = LIST_ITEM.test(raw) || /^\s*#/.test(raw)
     const line = raw.replace(/~~[^~]*~~/g, ' ').replace(LIST_ITEM, '').replace(/^#+\s+/, '').trim()
-    if (line === '' || line.startsWith('|')) continue
-    for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z"“(*])/)) if (s.trim()) out.push(s.trim())
+    if (line === '' || line.startsWith('|')) {
+      canJoin = false
+      continue
+    }
+    if (canJoin && !isItem && !/[.!?:]$/.test(lines[lines.length - 1])) lines[lines.length - 1] += ` ${line}`
+    else lines.push(line)
+    canJoin = !/^\s*#/.test(raw)
   }
+  const out           = []
+  for (const line of lines) for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z"“(*])/)) if (s.trim()) out.push(s.trim())
   return out
 }
 
@@ -649,7 +669,8 @@ export function recordFacts(record        , rowState        , owner        )    
   const updated = currentBody.split('\n').find(l => /\*\*Updated:?\*\*/i.test(l)) ?? ''
   const fromUpdated = providerIn(updated)
   const who = fromTitle.provider ? fromTitle : fromUpdated
-  const said = `${plain(rowState)}\n${labelled(currentBody, /^(?:status|state)\b/i)}`
+  const stateLine = labelled(currentBody, /^(?:status|state)\b/i)
+  const said = `${plain(rowState)}\n${stateLine}`
   const flags = FLAGS.filter(f => f.test.test(plain(rowState))).map(f => f.flag)
   return {
     next: doc.next || rowNext,
@@ -660,6 +681,23 @@ export function recordFacts(record        , rowState        , owner        )    
     provider: who.provider,
     viaCodeg: fromTitle.viaCodeg || fromUpdated.viaCodeg,
     status: statusOf(flags, waits, said, doc.next && isNextCurrent ? doc.next : ''),
+    stateLine,
+    currentTitle: current?.title ?? '',
+    ...quotedFallbacks(doc, current?.title ?? '', currentBody),
+  }
+}
+
+// Without labelled lines, a current checkpoint's own sentence that starts "Next …" or "Read …" stands in, quoted and
+// marked as such; it never replaces a labelled line, and nothing outside the current checkpoint is used.
+function quotedFallbacks(doc                                     , title        , currentBody        ) {
+  const sentences = title ? sentencesOf(currentBody).map(textOf) : []
+  const nextQuote = !doc.next ? (sentences.find(s => /^next\s+(?!:)[a-z]/i.test(s)) ?? '') : ''
+  const readQuote = !doc.readFirst ? (sentences.find(s => /^read\s+(?:first|current|the)\b/i.test(s)) ?? '') : ''
+  return {
+    isNextQuoted: nextQuote !== '',
+    isReadFirstQuoted: readQuote !== '',
+    ...(nextQuote ? { next: nextQuote, nextWhere: title, isNextCurrent: true } : {}),
+    ...(readQuote ? { readFirst: readQuote } : {}),
   }
 }
 
@@ -968,6 +1006,132 @@ export function summaryPrompt(project        , sectionTitle        , body       
     'hashes, file paths and commit ids unless one is essential. Reply with markdown bullets only, no heading.\n\n' +
     `<section>\n${body}\n</section>`
   )
+}
+
+// ---------- usage: readings of each account's rate-limit windows, never estimates ----------
+
+// Three accounts: Claude on each machine (separate accounts) and one Codex account used on both.
+                                                                       
+export const USAGE_ACCOUNTS                                                           = [
+  { account: 'claude-desktop', label: 'Claude · desktop account', none: "No reading yet: one appears after a Claude Code reply on the desktop." },
+  { account: 'claude-laptop', label: 'Claude · laptop account', none: "No reading: the laptop doesn't publish usage yet." },
+  { account: 'codex', label: 'Codex', none: 'No reading yet: one appears after Codex works on a machine that publishes usage.' },
+]
+                                                                                                                        
+// What one source said at one moment: `observedAtMs` is when the provider reported it, not when it was copied.
+                                                                                                                   
+                                                                                                           
+
+const isPercent = (n         )              => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1000
+const windowName = (minutes               ) =>
+  minutes === null ? 'window' : minutes === 10080 ? 'weekly' : minutes < 1440 ? `${Math.round(minutes / 60)}-hour` : `${Math.round(minutes / 1440)}-day`
+
+// Claude Code's rate-limit windows (a mod's `$.session.usage()` or `session.measure`), as of its last reply.
+const CLAUDE_WINDOWS                                                    = {
+  five_hour: { name: '5-hour', minutes: 300 },
+  seven_day: { name: '7-day', minutes: 10080 },
+}
+export function claudeUsageReading(
+  limits                                                            ,
+  machine         ,
+  observedAtMs        ,
+)                      {
+  const windows = limits
+    .filter(l => typeof l?.kind === 'string' && isPercent(l.percentUsed))
+    .map(l => {
+      const known = CLAUDE_WINDOWS[l.kind]
+      const resets = l.resetsAt ? Date.parse(l.resetsAt) : Number.NaN
+      return {
+        name: known?.name ?? l.kind.replace(/_/g, ' '),
+        usedPercent: l.percentUsed,
+        windowMinutes: known?.minutes ?? null,
+        resetsAtMs: Number.isFinite(resets) ? resets : null,
+      }
+    })
+  return windows.length > 0 ? { account: machine === 'laptop' ? 'claude-laptop' : 'claude-desktop', origin: machine, observedAtMs, windows } : null
+}
+
+// Codex's session logs (rollout-*.jsonl) carry `rate_limits` with each token count: an internal format, read by this
+// adapter only (version 1, checked against real logs on 4 Oct 2026). The newest line that parses and has a valid
+// window wins; anything cut off, unknown or empty is skipped, and no valid line at all means no reading.
+export const CODEX_ADAPTER = 'rollout-token_count-v1'
+export function codexUsageFromLog(text        , origin         )                      {
+  const lines = text.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"rate_limits"')) continue
+    let entry                                                                                                                  
+    try {
+      entry = JSON.parse(lines[i])
+    } catch {
+      continue
+    }
+    const limits = entry.payload?.type === 'token_count' ? entry.payload.rate_limits : null
+    const observedAtMs = Date.parse(entry.timestamp ?? '')
+    if (!limits || !Number.isFinite(observedAtMs)) continue
+    const windows                = []
+    for (const key of ['primary', 'secondary']) {
+      const w = limits[key]                                                                                                
+      if (!w || !isPercent(w.used_percent)) continue
+      const minutes = typeof w.window_minutes === 'number' && w.window_minutes > 0 ? w.window_minutes : null
+      const resets = typeof w.resets_at === 'number' && w.resets_at > 0 ? (w.resets_at < 1e12 ? w.resets_at * 1000 : w.resets_at) : null
+      windows.push({ name: windowName(minutes), usedPercent: w.used_percent, windowMinutes: minutes, resetsAtMs: resets })
+    }
+    if (windows.length > 0) return { account: 'codex', origin, observedAtMs, windows }
+  }
+  return null
+}
+
+// The published file, memory/<machine>/hub/usage.md: a short note and a JSON block (sync.sh only publishes .md files).
+export function usageSnapshotMarkdown(s               )         {
+  return (
+    `# Usage readings (${s.machine})\n\n` +
+    'Written by the profile-sync mod on this machine and read by the projects hub. These are readings as each provider ' +
+    'last reported them, with the time observed; nothing here is estimated. No prompts, sessions or account details.\n\n' +
+    `\`\`\`json\n${JSON.stringify(s, null, 1)}\n\`\`\`\n`
+  )
+}
+
+const isReading = (r         )                    => {
+  const x = r                
+  return (
+    typeof x === 'object' && x !== null &&
+    USAGE_ACCOUNTS.some(a => a.account === x.account) &&
+    (x.origin === 'desktop' || x.origin === 'laptop') &&
+    Number.isFinite(x.observedAtMs) &&
+    Array.isArray(x.windows) &&
+    x.windows.every(w => typeof w?.name === 'string' && isPercent(w.usedPercent))
+  )
+}
+export function parseUsageSnapshot(md        )                       {
+  const block = md.match(/```json\s*\n([\s\S]*?)\n```/)?.[1]
+  if (!block) return null
+  try {
+    const s = JSON.parse(block)                 
+    if (s?.version !== 1 || (s.machine !== 'desktop' && s.machine !== 'laptop') || !Array.isArray(s.readings)) return null
+    return { ...s, readings: s.readings.filter(isReading) }
+  } catch {
+    return null
+  }
+}
+
+// One row per account, from the newest reading of it (by when the provider reported it, whichever machine it came
+// from). A window whose reset time has passed since that reading is "reset-passed": its use since then is unknown,
+// so no percentage is shown for it.
+                        
+                       
+               
+              
+                              
+                                                                                              
+ 
+export function usageRows(readings                , nowMs        )             {
+  return USAGE_ACCOUNTS.map(({ account, label, none }) => {
+    const reading = readings.filter(r => r.account === account).sort((a, b) => b.observedAtMs - a.observedAtMs)[0] ?? null
+    const windows = (reading?.windows ?? []).map(w =>
+      w.resetsAtMs !== null && w.resetsAtMs <= nowMs ? { ...w, state: 'reset-passed'         , usedPercent: null } : { ...w, state: 'reading'          },
+    )
+    return { account, label, none, reading, windows }
+  })
 }
 
 // ---------- chart ----------
