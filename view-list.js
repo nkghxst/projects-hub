@@ -61,13 +61,13 @@ export function renderList(data      , width        )         {
     ${active.map(s => liveBox(s, now, true)).join('')}
 
     <div class="toolbar">
-      <input id="query" type="search" placeholder="Filter by name or state…  ( / )" value="${esc(f.query)}" autocomplete="off">
+      <input id="query" type="search" aria-label="Filter projects by name or state" placeholder="Filter by name or state…  ( / )" value="${esc(f.query)}" autocomplete="off">
       <div class="segmented">
         ${(['all', 'desktop', 'laptop']         )
-          .map(m => `<button data-action="machine" data-value="${m}" class="${f.machine === m ? 'on' : ''}">${m === 'all' ? 'All' : machineName(m)}</button>`)
+          .map(m => `<button data-action="machine" data-value="${m}" class="${f.machine === m ? 'on' : ''}" aria-pressed="${f.machine === m}">${m === 'all' ? 'All' : machineName(m)}</button>`)
           .join('')}
       </div>
-      <button data-action="attention" class="toggle ${f.attention ? 'on' : ''}" title="Shortcut: a">⚑ Needs attention (${k.attention})</button>
+      <button data-action="attention" class="toggle ${f.attention ? 'on' : ''}" aria-pressed="${f.attention}" title="Shortcut: a">⚑ Needs attention (${k.attention})</button>
       <label class="sort">Sort
         <select id="sort">${SORTS.map(s => `<option value="${s.value}" ${s.value === f.sort ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select>
       </label>
@@ -83,5 +83,10 @@ export function renderList(data      , width        )         {
           <h2>${dot(machine)} ${machineName(machine)} <span class="muted">${rows.length} of ${data.projects.filter(p => p.machine === machine).length}</span></h2>
           ${rows.map(row).join('')}
         </section>`
-    }).join('')}`
+    }).join('')}
+    ${
+      state.mode === 'local'
+        ? `<p class="muted small keys">Keys: <kbd>/</kbd> filter · <kbd>a</kbd> needs attention · <kbd>r</kbd> refresh · <kbd>b</kbd> back</p>`
+        : ''
+    }`
 }

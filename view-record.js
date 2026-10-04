@@ -1,6 +1,6 @@
 // One record: its meta, index row, live work, Next and Read first, actions, phone notes, then its sections in the
 // readable or as-written layout, with summaries where the desktop can write them, and its recent edit history.
-import { ageLabel, boldVerdicts, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
+import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
                                                        
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
@@ -44,29 +44,36 @@ function catchUpPrompt(p         , source      , worktreeRoot        )         {
   )
 }
 
-function sectionHtml(s             , i        , resolve              , md                          )         {
+// A section card. Only the record's current section gets the accent. A summary shows in full while its section is
+// open; a closed section keeps a one-line note that it has one, so older summaries don't compete with the current
+// answer. The heading's button says whether the section is open and which content it controls.
+function sectionHtml(s             , i        , isCurrent         , resolve              , md                          )         {
   const isOpen = state.open.has(String(i))
-  const isCurrent = i === 0 || /^(?:current|latest)\b/i.test(s.title)
   const isPending = state.pending.has(i)
   const canSummarise = Boolean(state.source?.summarise) && Boolean(s.hash)
+  const bodyId = `section-${i}`
+  const summary = s.summary
+  const summaryHtml = !summary
+    ? ''
+    : isOpen
+      ? `<div class="card ai">
+          <div class="summary-head"><strong class="ai-ink">✦ Summary</strong>
+            <span class="muted">written by ${esc(summary.model)}, ${esc(fmtStamp(summary.atMs, Date.now()))}${summary.note ? ` (fallback: ${esc(summary.note)})` : ''}; check it against the record</span>
+            ${isPending || !canSummarise ? '' : `<button class="link muted" data-action="summarise" data-value="${i}" data-redo="1">Redo</button>`}</div>
+          ${md(summary.text)}
+        </div>`
+      : `<button class="link muted small summary-note" data-action="section" data-value="${i}" aria-controls="${bodyId}">✦ Summary available</button>`
   return `
-    <section class="card section ${isCurrent ? 'accent' : ''}">
+    <section class="card section${isCurrent ? ' current' : ''}">
       <div class="section-bar">
-        <button class="section-head" data-action="section" data-value="${i}" aria-expanded="${isOpen}">${isOpen ? '▾' : '▸'} ${esc(s.title)}</button>
-        ${canSummarise && !s.summary && !isPending ? `<button class="link muted" data-action="summarise" data-value="${i}">✦ Summarise</button>` : ''}
+        <h3 class="section-title"><button class="section-head" data-action="section" data-value="${i}" aria-expanded="${isOpen}" aria-controls="${bodyId}">${isOpen ? '▾' : '▸'} ${esc(s.title)}</button></h3>
+        ${canSummarise && !summary && !isPending ? `<button class="link muted" data-action="summarise" data-value="${i}">✦ Summarise</button>` : ''}
         ${isPending ? '<span class="muted">✦ Summarising… (can take a minute)</span>' : ''}
       </div>
-      ${
-        s.summary
-          ? `<div class="card ai">
-              <div class="summary-head"><strong class="ai-ink">✦ Summary</strong>
-                <span class="muted">written by ${esc(s.summary.model)}${s.summary.note ? ` (fallback: ${esc(s.summary.note)})` : ''}; check it against the record</span>
-                ${isPending || !canSummarise ? '' : `<button class="link muted" data-action="summarise" data-value="${i}" data-redo="1">Redo</button>`}</div>
-              ${md(s.summary.text)}
-            </div>`
-          : ''
-      }
-      ${isOpen ? (s.body === '' ? '<p class="muted">Empty section.</p>' : state.layout === 'readable' ? `<div class="rows">${rowsHtml(s.body, resolve)}</div>` : md(s.body)) : ''}
+      <div id="${bodyId}">
+        ${summaryHtml}
+        ${isOpen ? (s.body === '' ? '<p class="muted">Empty section.</p>' : state.layout === 'readable' ? `<div class="rows">${rowsHtml(s.body, resolve)}</div>` : md(s.body)) : ''}
+      </div>
     </section>`
 }
 
@@ -80,6 +87,7 @@ export function renderRecord(doc            , data             )         {
   const resolve = linkResolver(doc.path)
   const md = (text        ) => `<div class="md">${renderMarkdown(text, resolve)}</div>`
   const isAllOpen = doc.sections.every((_, i) => state.open.has(String(i)))
+  const current = currentSectionIndex(doc.sections.map(x => x.title))
   const other                      = p ? (p.machine === 'desktop' ? 'laptop' : 'desktop') : undefined
   const recordNotes = notesFor(doc.path)
   const recordQueue = queuedFor(doc.path)
@@ -133,7 +141,7 @@ export function renderRecord(doc            , data             )         {
           : ''
       }
     </div>
-    ${doc.sections.map((s, i) => sectionHtml(s, i, resolve, md)).join('')}
+    ${doc.sections.map((s, i) => sectionHtml(s, i, i === current, resolve, md)).join('')}
     ${
       doc.history.length > 0
         ? `<section class="history"><div class="label">Recent edits to this record</div>

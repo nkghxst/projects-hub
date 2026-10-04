@@ -1,10 +1,10 @@
 // Small pieces several views share: marks, names, links, flag chips, the live-work box and note cards.
-import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, resolvePath } from './core.js'
+import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, parseNote, resolvePath } from './core.js'
                                                                    
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
 import { recordHref } from './routes.js'
-import { settings, state } from './state.js'
+import { settings, state, UNKNOWN_DEST } from './state.js'
                                         
 
 export const dot = (tone      , glyph = '●') => `<span class="mark" style="color:${HEX[tone]}">${glyph}</span>`
@@ -77,37 +77,45 @@ export function liveBox(source      , now        , isCompact         )         {
     </section>`
 }
 
-// A note or idea. Queued notes get their state and, where it applies, their actions: a conflict or a note held for
-// another repository can be copied or discarded, and a held one can be sent to the current repository instead.
+// Where a queued note is going, in words: "owner/name", with the API address only when it isn't GitHub's own.
+export function destinationLabel(dest        )         {
+  if (dest === UNKNOWN_DEST) return 'repository unknown'
+  const [origin, repo] = dest.split('|')
+  return origin === 'https://api.github.com' || !repo ? repo || dest : `${repo} at ${origin}`
+}
+
+// A note or idea. Queued notes are read from the exact text that will be sent, so what shows (link included) is what
+// goes; they say where they're going, can always be copied, and where something is stopping them, they get actions:
+// a conflict or a held note can be discarded, and a held one can be sent to the current repository instead.
 export function noteCard(n               , isQueued         , hold                                                  = '')         {
   const resolve = linkResolver(n.path)
   const project = n.project ? `<a href="${recordHref(n.project)}">${esc(projectName(n.project))}</a>` : ''
   const captured = 'captured' in n ? n.captured : fmtStamp(n.createdAt, Date.now())
-  const sourceUrl = 'source' in n ? n.source : ''
+  const sourceUrl = 'source' in n ? n.source : 'text' in n ? parseNote(n.path, n.text).source : ''
   const source = !sourceUrl
     ? ''
     : isWebUrl(sourceUrl)
       ? `<div class="clip"><a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(sourceUrl)}</a></div>`
       : `<div class="clip muted">${esc(sourceUrl)}</div>`
+  const dest = 'dest' in n ? destinationLabel(n.dest) : ''
   const status = !isQueued
     ? ''
     : hold === 'conflict'
-      ? ' · conflict: not sent'
+      ? ` · conflict: not sent to ${dest}`
       : hold === 'other-repo'
-        ? ' · held: written for another repository'
+        ? ` · held: written for ${dest}`
         : hold === 'unknown-repo'
           ? ' · held: repository unknown'
-          : ' · saved on this phone, waiting to send'
+          : ` · saved on this phone, waiting to send to ${dest}`
   const id = 'id' in n ? n.id : ''
   const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile)
-  const actions =
-    isQueued && hold
-      ? `<div class="actions">
-          ${canPlace ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to ${esc(settings.repo || 'the current repository')}${hold === 'other-repo' ? ' instead' : ''}</button>` : ''}
-          <button class="link" data-action="copy-queued" data-value="${esc(id)}">Copy text</button>
-          <button class="link muted" data-action="discard" data-value="${esc(id)}">Discard</button>
-        </div>`
-      : ''
+  const actions = isQueued
+    ? `<div class="actions">
+        ${canPlace ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to ${esc(settings.repo || 'the current repository')}${hold === 'other-repo' ? ' instead' : ''}</button>` : ''}
+        <button class="link" data-action="copy-queued" data-value="${esc(id)}">Copy text</button>
+        ${hold ? `<button class="link muted" data-action="discard" data-value="${esc(id)}">Discard</button>` : ''}
+      </div>`
+    : ''
   const conflict = 'conflict' in n && n.conflict ? `<p class="error small">${esc(n.conflict)}</p>` : ''
   return `
     <article class="card note ${isQueued ? 'queued' : ''}">

@@ -213,6 +213,8 @@ export async function summarise(index        , isRedo         ) {
     // Only apply it if the same record, from the same source, is still open.
     if (reply.ok && reply.summary && state.record?.path === path && generation === state.sourceGeneration) {
       state.record.sections[index].summary = reply.summary           
+      // A summary only shows in full while its section is open, so open it to show the result.
+      state.open.add(String(index))
     } else if (!reply.ok) {
       toast(`Couldn't summarise: ${reply.error ?? 'unknown error'}`)
     }

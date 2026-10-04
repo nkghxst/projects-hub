@@ -378,6 +378,13 @@ function callout(lines          , label        )         {
   return ''
 }
 
+// The section holding the record's current answer: the first titled "Current…" or "Latest…" (records keep older
+// checkpoints below with the same heading), otherwise the first section. Only this one gets the accent.
+export function currentSectionIndex(titles          )         {
+  const i = titles.findIndex(t => /^(?:current|latest)\b/i.test(t.trim()))
+  return i === -1 ? 0 : i
+}
+
 export function parseDoc(path        , text        )                       {
   const lines = text.replace(/\r/g, '').split('\n')
   let title = path.split('/').pop() ?? path

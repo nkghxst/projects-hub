@@ -36,16 +36,18 @@ import { renderRecord } from './view-record.js'
 const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
 
 const view = document.getElementById('view')               
+// Banners (loading problems, offline, storage) sit in a polite live region, so a screen reader hears them change.
+const bannerBox = document.getElementById('banners')               
 const nav = document.getElementById('nav')               
 const loadedLabel = document.getElementById('loaded')               
 
 function renderNav() {
   const inboxCount = state.notes.length + state.queue.length
   nav.innerHTML = `
-    <a class="button" href="#/inbox" title="Notes and ideas from the phone">Inbox${inboxCount > 0 ? ` (${inboxCount})` : ''}</a>
+    <a class="button" href="#/inbox" title="Notes and ideas from the phone"${currentRoute().name === 'inbox' ? ' aria-current="page"' : ''}>Inbox${inboxCount > 0 ? ` (${inboxCount})` : ''}</a>
     ${state.source?.createFile ? `<a class="button primary" href="${captureHref()}">✎ Note</a>` : ''}
-    ${state.mode === 'github' ? '<a class="button" href="#/settings" title="Settings">⚙</a>' : ''}
-    <button data-action="refresh" title="Shortcut: r">↻</button>`
+    ${state.mode === 'github' ? `<a class="button" href="#/settings" title="Settings" aria-label="Settings"${currentRoute().name === 'settings' ? ' aria-current="page"' : ''}>⚙</a>` : ''}
+    <button data-action="refresh" title="Refresh (shortcut: r)" aria-label="Refresh">↻</button>`
 }
 
 // A redraw (say, data arriving mid-typing) keeps the cursor where it was: same field, same selection.
@@ -102,7 +104,10 @@ function render() {
     !state.isOffline && state.error && state.data && r.name === 'list' ? `Last refresh failed: ${state.error}` : '',
     state.mode === 'github' ? snapshotSaveProblem() : '',
   ].filter(Boolean)
-  view.innerHTML = banners.map(b => `<p class="banner">${esc(b)}</p>`).join('') + html
+  const bannerHtml = banners.map(b => `<p class="banner">${esc(b)}</p>`).join('')
+  // Only rewritten when it changes, so the live region doesn't repeat itself on every redraw.
+  if (bannerBox.innerHTML !== bannerHtml) bannerBox.innerHTML = bannerHtml
+  view.innerHTML = html
   renderNav()
 
   const at = new Date(state.loadedAt)
@@ -145,6 +150,7 @@ document.addEventListener('click', async event => {
     changed()
   } else if (action === 'retry') await flushQueue()
   else if (action === 'draft-kind') setDraftKind(value            )
+  else if (action === 'new-idea') setDraftKind('idea')
   else if (action === 'clear-draft') clearDraft()
   else if (action === 'forget-token') forgetToken()
   else if (action === 'remove-all') await removeAllData()

@@ -28,7 +28,7 @@ export function renderInbox()         {
     }</p>
     <div class="segmented">
       ${(['all', 'note', 'idea']         )
-        .map(k => `<button data-action="inbox-kind" data-value="${k}" class="${kind === k ? 'on' : ''}">${k === 'all' ? 'All' : k === 'note' ? 'Notes' : 'Ideas'}</button>`)
+        .map(k => `<button data-action="inbox-kind" data-value="${k}" class="${kind === k ? 'on' : ''}" aria-pressed="${kind === k}">${k === 'all' ? 'All' : k === 'note' ? 'Notes' : 'Ideas'}</button>`)
         .join('')}
     </div>
     ${
@@ -55,7 +55,18 @@ export function renderInbox()         {
             ${held.map(q => noteCard(q, true, 'other-repo')).join('')}</section>`
         : ''
     }
-    ${notes.map(n => noteCard(n, false)).join('') || (queued.length === 0 ? '<p class="muted">Nothing here yet.</p>' : '')}`
+    ${notes.map(n => noteCard(n, false)).join('') || (queued.length === 0 ? emptyInbox(canCapture) : '')}`
+}
+
+// What to do when there's nothing yet: on the desktop, when phone notes arrive; on the phone, a way to start one.
+function emptyInbox(canCapture         )         {
+  if (state.mode === 'local') {
+    return `<p class="muted">No phone notes yet. A note captured on the phone shows here once it's on GitHub and this
+      machine's next profile sync has pulled it (sessions sync when they start and end).</p>`
+  }
+  return canCapture
+    ? `<p class="muted">Nothing here yet.</p><p><a class="button primary" href="${captureHref()}" data-action="new-idea">✎ Capture an idea</a></p>`
+    : '<p class="muted">Nothing here yet. Connect in <a href="#/settings">Settings</a> to capture notes and ideas.</p>'
 }
 
 export function renderCapture()         {
@@ -71,13 +82,13 @@ export function renderCapture()         {
     <div class="crumbs"><button data-action="back">← Back</button></div>
     <h2 class="title">New ${d.kind === 'idea' ? 'idea' : 'note'}</h2>
     <div class="segmented">
-      <button data-action="draft-kind" data-value="note" class="${d.kind === 'note' ? 'on' : ''}">Note on a project</button>
-      <button data-action="draft-kind" data-value="idea" class="${d.kind === 'idea' ? 'on' : ''}">Idea</button>
+      <button data-action="draft-kind" data-value="note" class="${d.kind === 'note' ? 'on' : ''}" aria-pressed="${d.kind === 'note'}">Note on a project</button>
+      <button data-action="draft-kind" data-value="idea" class="${d.kind === 'idea' ? 'on' : ''}" aria-pressed="${d.kind === 'idea'}">Idea</button>
     </div>
     <form class="form" id="capture" autocomplete="off">
       ${
         d.kind === 'note'
-          ? `<label>Project
+          ? `<label><span>Project</span>
               <select id="draft-project" required>
                 <option value="">Choose a project…</option>
                 ${extraOptions}
@@ -90,10 +101,10 @@ export function renderCapture()         {
               </select></label>`
           : ''
       }
-      <label>Title <span class="muted">(optional)</span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
-      <label>${d.kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span><textarea id="draft-body" rows="8">${esc(d.body)}</textarea></label>
-      <label>Link <span class="muted">(optional)</span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
-      <div class="actions">
+      <label><span>${d.kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span></span><textarea id="draft-body" rows="5">${esc(d.body)}</textarea></label>
+      <label><span>Link <span class="muted">(optional)</span></span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
+      <label><span>Title <span class="muted">(optional)</span></span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
+      <div class="actions sticky">
         <button class="primary" type="submit">Save</button>
         <button type="button" data-action="clear-draft">Clear</button>
       </div>
@@ -111,9 +122,9 @@ export function renderSettings()         {
     <h2 class="title">Settings</h2>
     <p>This app reads your private <code>claude-profile</code> repo from GitHub with a fine-grained token that stays on this phone and is only ever sent to <code>api.github.com</code>.</p>
     <form class="form" id="settings" autocomplete="off">
-      <label>Repository<input id="set-repo" value="${esc(d.repo)}" placeholder="owner/name" autocapitalize="off" spellcheck="false"></label>
-      <label>Token<input id="set-token" type="password" value="${esc(d.token)}" placeholder="github_pat_…" autocapitalize="off" spellcheck="false"></label>
-      ${isLocalPage() ? `<details><summary>Advanced (testing on this machine)</summary><label>API address<input id="set-api" value="${esc(d.apiBase)}" spellcheck="false"></label></details>` : ''}
+      <label><span>Repository</span><input id="set-repo" value="${esc(d.repo)}" placeholder="owner/name" autocapitalize="off" spellcheck="false"></label>
+      <label><span>Token</span><input id="set-token" type="password" value="${esc(d.token)}" placeholder="github_pat_…" autocapitalize="off" spellcheck="false"></label>
+      ${isLocalPage() ? `<details><summary>Advanced (testing on this machine)</summary><label><span>API address</span><input id="set-api" value="${esc(d.apiBase)}" spellcheck="false"></label></details>` : ''}
       <div class="actions">
         <button class="primary" type="submit">Save and connect</button>
         ${d.token ? '<button type="button" data-action="forget-token">Forget token</button>' : ''}
@@ -128,6 +139,6 @@ export function renderSettings()         {
     <section class="card">
       <div class="label strong">This device</div>
       <p class="small">Forget token keeps saved notes and the offline copy. This removes everything the app keeps here: token, settings, offline copies and unsent notes.</p>
-      <button type="button" data-action="remove-all">Remove all hub data from this device</button>
+      <button type="button" class="link danger" data-action="remove-all">Remove all hub data from this device…</button>
     </section>`
 }
