@@ -186,6 +186,9 @@ a.button.primary { background: var(--accent-fill); border-color: var(--accent-fi
   background: var(--bg); border-top: 1px solid var(--line);
 }
 .small { font-size: 12.5px; }
+/* First-run setup: numbered cards (the numbers are in each card's heading). */
+.steps { list-style: none; padding: 0; margin: 12px 0; max-width: 640px; }
+.steps .form { margin-top: 8px; }
 details summary { cursor: pointer; color: var(--muted); }
 
 /* Phone-sized screens */

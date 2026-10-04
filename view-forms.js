@@ -3,6 +3,7 @@ import { MACHINES } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { machineName, noteCard, projectName } from './parts.js'
 import { captureHref } from './routes.js'
+import { pageOwner, tokenTemplateUrl } from './source.js'
 import { state, UNKNOWN_DEST } from './state.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
@@ -132,9 +133,10 @@ export function renderSettings()         {
       ${state.settingsMessage ? `<p class="${state.settingsMessage.startsWith('Connected') || state.settingsMessage.startsWith('Offline') ? '' : 'error'}">${esc(state.settingsMessage)}</p>` : ''}
     </form>
     <section class="card">
-      <div class="label strong">Making the token</div>
-      <p>GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only <code>claude-profile</code>.
-      Permissions: <strong>Contents: Read and write</strong> (Metadata: Read is added automatically). Revoke it there if the phone is lost.</p>
+      <div class="label strong">A new token</div>
+      <p>When the token expires or you replace it: <a href="${esc(tokenTemplateUrl(d.repo.split('/')[0] || pageOwner()))}" target="_blank" rel="noopener noreferrer">open GitHub's pre-filled token page</a>,
+      pick <strong>Only select repositories</strong> → <code>claude-profile</code>, generate it, then paste it above.
+      Revoke the old one on GitHub (Settings → Developer settings → Fine-grained tokens), and revoke this one there if the phone is lost.</p>
     </section>
     <section class="card">
       <div class="label strong">This device</div>

@@ -12,6 +12,7 @@ import {
   flushQueue,
   forgetToken,
   loadAll,
+  pasteAndConnect,
   queuedText,
   refresh,
   removeAllData,
@@ -30,6 +31,7 @@ import { changed, isConfigured, onChange, QUEUE_PREFIX, REFRESH_MS, refreshQueue
                                          
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
+import { renderSetup } from './view-setup.js'
 import { renderRecord } from './view-record.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
@@ -79,7 +81,9 @@ function render() {
   const r = currentRoute()
 
   let html = ''
-  if (r.name === 'settings' || (state.mode === 'github' && !isConfigured())) {
+  if (state.mode === 'github' && !isConfigured()) {
+    html = renderSetup()
+  } else if (r.name === 'settings') {
     html = renderSettings()
   } else if (r.name === 'inbox') {
     html = renderInbox()
@@ -154,6 +158,8 @@ document.addEventListener('click', async event => {
   else if (action === 'clear-draft') clearDraft()
   else if (action === 'forget-token') forgetToken()
   else if (action === 'remove-all') await removeAllData()
+  else if (action === 'paste-connect') await pasteAndConnect()
+  else if (action === 'install') await installPrompt?.prompt()
   else if (action === 'send-here') await sendHeldHere(value)
   else if (action === 'discard') discardQueued(value)
   else if (action === 'copy' || action === 'copy-queued') {
@@ -216,6 +222,23 @@ document.addEventListener('keydown', event => {
     ;(document.getElementById('query')                           )?.focus()
   }
 })
+
+// Android Chrome offers to install the app; setup shows its own Install button instead of the browser's banner.
+                                                            
+let installPrompt                       = null
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault()
+  installPrompt = event                 
+  state.canInstall = true
+  changed()
+})
+window.addEventListener('appinstalled', () => {
+  installPrompt = null
+  state.canInstall = false
+  state.isInstalled = true
+  changed()
+})
+state.isInstalled = globalThis.matchMedia?.('(display-mode: standalone)').matches ?? false
 
 window.addEventListener('hashchange', () => void route())
 window.addEventListener('online', () => void refresh())

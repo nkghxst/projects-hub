@@ -2,6 +2,7 @@
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
 import { noteId, stableId } from './core.js'
                                                               
+import { defaultRepo } from './source.js'
                                                                            
 
                                                                                                  
@@ -133,9 +134,12 @@ export const state = {
   queue: readQueue(),
   queueError: '',
   draft: { ...EMPTY_DRAFT }         ,
-  // What's being typed into Settings, kept across redraws until it's saved.
-  settingsDraft: { ...settings }                  ,
+  // What's being typed into Settings, kept across redraws until it's saved. A first run starts with the usual repo.
+  settingsDraft: { ...settings, repo: settings.repo || defaultRepo() }                  ,
   settingsMessage: '',
+  // The browser offered to install the app (Android Chrome), or it's already running installed.
+  canInstall: false,
+  isInstalled: false,
 }
 
 export function refreshQueue() {

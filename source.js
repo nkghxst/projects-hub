@@ -82,6 +82,27 @@ export function effectiveApiBase(settings                )         {
   return isLocalPage() && wanted ? wanted : GITHUB_API
 }
 
+// The account the app is published from (<owner>.github.io), which also owns the private profile repo; empty
+// anywhere else (the desktop, or testing on this machine).
+export function pageOwner()         {
+  return location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i)?.[1] ?? ''
+}
+export const defaultRepo = () => (pageOwner() ? `${pageOwner()}/claude-profile` : '')
+
+// GitHub's new-token page, pre-filled: a name, what it's for, the account, a year's expiry, and the one permission the
+// app needs (Contents: read and write; Metadata: read comes with it). GitHub can't pre-select a repository, so
+// "Only select repositories → claude-profile" is the one choice left to make there.
+export function tokenTemplateUrl(owner        )         {
+  const params = new URLSearchParams({
+    name: 'Projects hub phone',
+    description: 'Projects hub phone app: reads claude-profile and saves notes to memory/phone/. Revoke it if the phone is lost.',
+    ...(owner ? { target_name: owner } : {}),
+    expires_in: '366',
+    contents: 'write',
+  })
+  return `https://github.com/settings/personal-access-tokens/new?${params}`
+}
+
 export function destinationOf(settings                )         {
   return `${new URL(effectiveApiBase(settings)).origin}|${settings.repo.trim().toLowerCase()}`
 }
@@ -137,7 +158,9 @@ export function githubSource(settings                , signal              )    
     } catch {
       throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
     }
-    if (res.status === 401 || res.status === 403) throw sourceError('auth', `GitHub refused the token (${res.status}). Check it in Settings.`)
+    if (res.status === 401 || res.status === 403) {
+      throw sourceError('auth', `GitHub refused the token (${res.status}). It may have expired or been revoked: make a new one in Settings.`)
+    }
     if (!res.ok) throw sourceError('other', `GitHub answered ${res.status}`)
     const reply = (await res.json())                                                                       
     if (reply.errors?.length) throw sourceError('other', reply.errors.map(e => e.message).join('; '))

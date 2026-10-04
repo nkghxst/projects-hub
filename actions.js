@@ -259,7 +259,8 @@ export function setDraftKind(kind          ) {
 }
 
 export async function saveSettings() {
-  const value = (id        , fallback        ) => (document.getElementById(id)                           )?.value.trim() ?? fallback
+  // What's in the field, or failing that the draft (which typing keeps in step), so a field not on screen isn't lost.
+  const value = (id        , fallback        ) => (document.getElementById(id)                           )?.value.trim() || fallback.trim()
   settings.repo = value('set-repo', state.settingsDraft.repo)
   settings.token = value('set-token', state.settingsDraft.token)
   settings.apiBase = value('set-api', state.settingsDraft.apiBase) || 'https://api.github.com'
@@ -281,9 +282,29 @@ export async function saveSettings() {
     state.settingsMessage = state.error
   } else {
     state.settingsMessage = `Connected to ${settings.repo}: ${state.data?.projects.length ?? 0} projects, ${state.notes.length} notes.`
+    // First-run setup moves straight on to the projects, so say so there too.
+    toast(state.settingsMessage)
     await flushQueue()
   }
   changed()
+}
+
+// Setup's one-tap step: take the token just copied on GitHub's page and connect with it.
+export async function pasteAndConnect() {
+  let text = ''
+  try {
+    text = (await navigator.clipboard.readText()).trim()
+  } catch {
+    // Refused, or no clipboard access in this browser.
+  }
+  if (!text) {
+    state.settingsMessage = "Couldn't read the clipboard. Long-press the Token box, choose Paste, then Connect."
+    return changed()
+  }
+  state.settingsDraft.token = text
+  const field = document.getElementById('set-token')                           
+  if (field) field.value = text
+  await saveSettings()
 }
 
 // Other open windows of the app reload when the token or a reset changes (see app.ts), so none keeps using it.
