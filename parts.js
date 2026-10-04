@@ -4,7 +4,7 @@ import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, resolvePath } f
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
 import { recordHref } from './routes.js'
-import { state } from './state.js'
+import { settings, state } from './state.js'
                                         
 
 export const dot = (tone      , glyph = '●') => `<span class="mark" style="color:${HEX[tone]}">${glyph}</span>`
@@ -79,7 +79,7 @@ export function liveBox(source      , now        , isCompact         )         {
 
 // A note or idea. Queued notes get their state and, where it applies, their actions: a conflict or a note held for
 // another repository can be copied or discarded, and a held one can be sent to the current repository instead.
-export function noteCard(n               , isQueued         , hold                                 = '')         {
+export function noteCard(n               , isQueued         , hold                                                  = '')         {
   const resolve = linkResolver(n.path)
   const project = n.project ? `<a href="${recordHref(n.project)}">${esc(projectName(n.project))}</a>` : ''
   const captured = 'captured' in n ? n.captured : fmtStamp(n.createdAt, Date.now())
@@ -89,12 +89,21 @@ export function noteCard(n               , isQueued         , hold              
     : isWebUrl(sourceUrl)
       ? `<div class="clip"><a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(sourceUrl)}</a></div>`
       : `<div class="clip muted">${esc(sourceUrl)}</div>`
-  const status = !isQueued ? '' : hold === 'conflict' ? ' · conflict: not sent' : hold === 'other-repo' ? ' · held: written for another repository' : ' · saved on this phone, waiting to send'
+  const status = !isQueued
+    ? ''
+    : hold === 'conflict'
+      ? ' · conflict: not sent'
+      : hold === 'other-repo'
+        ? ' · held: written for another repository'
+        : hold === 'unknown-repo'
+          ? ' · held: repository unknown'
+          : ' · saved on this phone, waiting to send'
   const id = 'id' in n ? n.id : ''
+  const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile)
   const actions =
     isQueued && hold
       ? `<div class="actions">
-          ${hold === 'other-repo' && state.source?.createFile ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to the current repository instead</button>` : ''}
+          ${canPlace ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to ${esc(settings.repo || 'the current repository')}${hold === 'other-repo' ? ' instead' : ''}</button>` : ''}
           <button class="link" data-action="copy-queued" data-value="${esc(id)}">Copy text</button>
           <button class="link muted" data-action="discard" data-value="${esc(id)}">Discard</button>
         </div>`

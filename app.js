@@ -7,6 +7,7 @@ import { fmtStamp, pad } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import {
   clearDraft,
+  connectGitHub,
   discardQueued,
   flushQueue,
   forgetToken,
@@ -24,8 +25,8 @@ import {
   takeShare,
 } from './actions.js'
 import { captureHref, currentRoute } from './routes.js'
-import { githubSource, localSource, snapshotSaveProblem } from './source.js'
-import { changed, isConfigured, onChange, QUEUE_PREFIX, REFRESH_MS, refreshQueue, settings, state, toast } from './state.js'
+import { EPOCH_KEY, localSource, snapshotSaveProblem } from './source.js'
+import { changed, isConfigured, onChange, QUEUE_PREFIX, REFRESH_MS, refreshQueue, state, toast } from './state.js'
                                          
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
@@ -146,7 +147,7 @@ document.addEventListener('click', async event => {
   else if (action === 'draft-kind') setDraftKind(value            )
   else if (action === 'clear-draft') clearDraft()
   else if (action === 'forget-token') forgetToken()
-  else if (action === 'remove-all') removeAllData()
+  else if (action === 'remove-all') await removeAllData()
   else if (action === 'send-here') await sendHeldHere(value)
   else if (action === 'discard') discardQueued(value)
   else if (action === 'copy' || action === 'copy-queued') {
@@ -178,9 +179,13 @@ document.addEventListener('input', event => {
   else if (el.id === 'set-api') state.settingsDraft.apiBase = el.value
 })
 
-// Another window of the app changed the queue: show it, and send if this window is the one that can.
+// Another window of the app reset it, or changed or forgot the token: start again from what's saved now, so this
+// window can't keep reading or sending with the old settings. Another window changed the queue: show it, and send if
+// this window is the one that can.
 window.addEventListener('storage', event => {
-  if (event.key === null || event.key.startsWith(QUEUE_PREFIX)) {
+  if (event.key === null || event.key === EPOCH_KEY || event.key === 'hub.github') {
+    location.reload()
+  } else if (event.key.startsWith(QUEUE_PREFIX)) {
     refreshQueue()
     changed()
     void flushQueue()
@@ -231,7 +236,7 @@ if (state.mode === 'local') {
   state.source = localSource()
 } else {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {})
-  if (isConfigured()) state.source = githubSource(settings)
+  if (isConfigured()) state.source = connectGitHub()
   takeShare()
 }
 setInterval(() => void refresh(), REFRESH_MS)

@@ -1,8 +1,7 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
-import { noteId } from './core.js'
+import { noteId, stableId } from './core.js'
                                                               
-import { destinationOf } from './source.js'
                                                                            
 
                                                                                                  
@@ -74,27 +73,48 @@ export function dropQueued(id        ) {
   localStorage.removeItem(QUEUE_PREFIX + id)
 }
 
-// Earlier versions kept the queue as one array under 'hub.queue' and one snapshot for every repository. Move queued
-// notes into their own entries (tied to the repository configured now, which is the one they were written for) and
-// drop the old shared snapshot, which can't say which repository it came from.
+// Notes saved by an earlier version carry no record of which repository they were written for. They're marked with
+// this destination, which never matches a real one, so they're held until the owner chooses where they go.
+export const UNKNOWN_DEST = 'unknown'
+
+// Earlier versions kept the queue as one array under 'hub.queue' and one snapshot for every repository. Each old note
+// moves into its own entry under a stable ID made from its full path and content, so running this again (another
+// window, or after a crash part-way) rewrites the same entries rather than duplicating or colliding. The old array is
+// only removed once every note is confirmed in its new entry; if storage fills up, it stays for the next attempt. The
+// old shared snapshot can't say which repository it came from, so it's dropped (it's only a cache).
 function migrateStorage() {
   const old = readJson                                      ('hub.queue', null)
   if (old) {
-    const dest = settings.repo.trim() ? destinationOf(settings) : ''
-    for (const q of old) putQueued({ ...q, id: q.path.match(/-([0-9a-f]{8})\.md$/)?.[1] ?? noteId(), dest })
-    localStorage.removeItem('hub.queue')
+    try {
+      const ids = old.map(q => `legacy-${stableId(`${q.path}\n${q.text}`)}`)
+      old.forEach((q, i) => {
+        if (!isQueued(ids[i])) putQueued({ ...q, id: ids[i], dest: UNKNOWN_DEST })
+      })
+      if (ids.every(isQueued)) localStorage.removeItem('hub.queue')
+    } catch {
+      // Storage full or unavailable: keep the old queue as it is and try again next time.
+    }
   }
   localStorage.removeItem('hub.gh.snapshot')
 }
 migrateStorage()
+
+// A new queue ID that isn't already in use on this device.
+export function newQueueId()         {
+  let id = noteId()
+  while (isQueued(id)) id = noteId()
+  return id
+}
 
 // ---------- state ----------
 
 export const state = {
   mode: 'local'                      ,
   source: null                 ,
-  // Bumped whenever Settings replaces the source, so work started for the old one stops.
+  // Bumped whenever Settings or a reset replaces the source, so work started for the old one stops; the abort
+  // controller cancels its requests still in flight.
   sourceGeneration: 0,
+  abort: new AbortController(),
   data: null               ,
   loadedAt: 0,
   error: '',
@@ -102,6 +122,8 @@ export const state = {
   filters: { ...DEFAULT_FILTERS, ...readJson                  ('hub.filters', {}), query: '' }           ,
   layout: (localStorage.getItem('hub.layout') === 'raw' ? 'raw' : 'readable')          ,
   record: null                     ,
+  // The source the open record came from, so a record from one repository is never kept under another.
+  recordDest: '',
   recordError: '',
   open: new Set        (),
   liveMore: false,

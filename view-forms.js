@@ -3,7 +3,7 @@ import { MACHINES } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { machineName, noteCard, projectName } from './parts.js'
 import { captureHref } from './routes.js'
-import { state } from './state.js'
+import { state, UNKNOWN_DEST } from './state.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
@@ -15,7 +15,8 @@ export function renderInbox()         {
   // Waiting notes, split by what's stopping them: nothing (they'll send), a conflict, or another repository.
   const sending = queued.filter(q => q.dest === dest && !q.conflict)
   const conflicts = queued.filter(q => q.dest === dest && q.conflict)
-  const held = queued.filter(q => q.dest !== dest)
+  const unplaced = queued.filter(q => q.dest === UNKNOWN_DEST)
+  const held = queued.filter(q => q.dest !== dest && q.dest !== UNKNOWN_DEST)
   const canCapture = Boolean(state.source?.createFile)
   return `
     <div class="crumbs"><a class="button" href="#/">← All projects</a>${canCapture ? `<a class="button primary" href="${captureHref()}">✎ New note</a>` : ''}</div>
@@ -40,6 +41,12 @@ export function renderInbox()         {
       conflicts.length > 0
         ? `<section class="queue"><div class="label">Not sent: a different file is already at the note's path (${conflicts.length})</div>
             ${conflicts.map(q => noteCard(q, true, 'conflict')).join('')}</section>`
+        : ''
+    }
+    ${
+      unplaced.length > 0
+        ? `<section class="queue"><div class="label">Held: saved by an earlier version of the app, which didn't record which repository they were for (${unplaced.length}). Choose where each goes, or copy or discard it.</div>
+            ${unplaced.map(q => noteCard(q, true, 'unknown-repo')).join('')}</section>`
         : ''
     }
     ${

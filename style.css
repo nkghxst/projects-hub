@@ -7,6 +7,11 @@
   --muted: #6f6d67;
   --line: #e1e0d9;
   --accent: #2a78d6;
+  /* Text and filled-button colours, each at least 4.5:1 against what it sits on (checked by tools/test-hub.mjs). */
+  --link: #1f64c0;
+  --accent-fill: #1f64c0;
+  --ai-ink: #5446c2;
+  --danger: #c13333;
   --code: rgba(137, 135, 129, 0.16);
   --hover: rgba(137, 135, 129, 0.12);
   --radius: 10px;
@@ -21,6 +26,10 @@
     --muted: #a3a19a;
     --line: #383835;
     --accent: #3987e5;
+    --link: #79aef0;
+    --accent-fill: #1d5bb0;
+    --ai-ink: #a99ff0;
+    --danger: #f08080;
   }
 }
 
@@ -31,7 +40,7 @@ body {
   color: var(--ink);
   font: 14px/1.5 system-ui, 'Segoe UI', sans-serif;
 }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button, select, input {
   font: inherit;
@@ -43,8 +52,8 @@ button, select, input {
 }
 button { cursor: pointer; }
 button:hover { background: var(--hover); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.link, a.link { background: none; border: none; padding: 0; color: var(--accent); }
+button.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
+button.link, a.link { background: none; border: none; padding: 0; color: var(--link); }
 button.link.muted { color: var(--muted); }
 a.button { border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; background: var(--surface); color: inherit; }
 code {
@@ -61,7 +70,7 @@ pre code { background: none; padding: 0; }
 .muted { color: var(--muted); }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .mark { display: inline-block; min-width: 1.1em; text-align: center; }
-.error { color: #d03b3b; }
+.error { color: var(--danger); }
 
 .bar {
   position: sticky; top: 0; z-index: 2;
@@ -91,7 +100,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
 .card.accent { border-color: var(--accent); }
 .card.live { border-color: #0ca30c; }
 .card.ai { border-color: #9085e9; margin: 8px 0; }
-.ai-ink { color: #9085e9; }
+.ai-ink { color: var(--ai-ink); }
 .section-bar, .summary-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .section-bar .section-head { width: auto; }
 .card .label { font-size: 12.5px; color: var(--muted); }
@@ -112,7 +121,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
 .segmented button { border-radius: 0; margin-left: -1px; }
 .segmented button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
 .segmented button:last-child { border-radius: 0 7px 7px 0; }
-.segmented button.on, .toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.segmented button.on, .toggle.on { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
 .sort { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
 
 .group h2 { font-size: 14px; margin: 18px 0 6px; display: flex; gap: 8px; align-items: baseline; }
@@ -137,7 +146,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
   background: none; border: none; padding: 2px 0;
   font-weight: 650;
 }
-.section-head:hover { background: none; color: var(--accent); }
+.section-head:hover { background: none; color: var(--link); }
 .rows { display: grid; gap: 5px; margin-top: 8px; }
 .r { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; padding-left: calc(var(--depth, 0) * 1.4em); }
 .r.muted { color: var(--muted); }
@@ -151,7 +160,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
 /* Navigation, banners, inbox and forms */
 #nav { display: flex; gap: 6px; align-items: center; }
 #nav .button, #nav button { padding: 4px 10px; }
-a.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+a.button.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
 .banner { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; color: var(--muted); }
 .crumbs .button { margin-right: 6px; }
 .notes, .queue { margin: 12px 0; }

@@ -302,11 +302,28 @@ export function slugify(text        )         {
   )
 }
 
-// A random ID for each capture (8 hex characters). It goes into the file name, so two notes can never share a path
-// even with the same title in the same second, and it stays fixed when a send is retried.
+// A random 64-bit ID for each capture (16 hex characters). It goes into the file name, which makes two notes sharing a
+// path vanishingly unlikely even with the same title in the same second, and it stays fixed when a send is retried.
+// Uniqueness isn't assumed anywhere it matters: a clash with an existing file is a visible conflict, and a clash in
+// the phone's queue is checked before saving.
 export function noteId()         {
-  const bytes = crypto.getRandomValues(new Uint8Array(4))
+  const bytes = crypto.getRandomValues(new Uint8Array(8))
   return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// A short, stable fingerprint of a string (cyrb53, 53 bits, as hex). Not for security: it gives notes migrated from
+// the old queue format the same ID however many times migration runs, and different notes different IDs.
+export function stableId(text        )         {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0')
 }
 
 // http(s) addresses only: anything else (javascript:, data:, file:) is never treated as a link.

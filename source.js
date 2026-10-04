@@ -106,10 +106,17 @@ function readSnapshot(dest        )                  {
 let snapshotProblem = ''
 export const snapshotSaveProblem = () => snapshotProblem
 
-export function githubSource(settings                )         {
+// The reset marker this device had when a source was made. "Remove all hub data" sets a new one, and a source made
+// before it stops writing: no offline copy saved and no note sent after the reset, even from a request already running.
+export const EPOCH_KEY = 'hub.epoch'
+const currentEpoch = () => localStorage.getItem(EPOCH_KEY) ?? ''
+
+export function githubSource(settings                , signal              )         {
   const [owner, name] = settings.repo.trim().split('/')
   const api = effectiveApiBase(settings)
   const dest = destinationOf(settings)
+  const epoch = currentEpoch()
+  const isRetired = () => signal?.aborted === true || currentEpoch() !== epoch
   const headers = {
     authorization: `Bearer ${settings.token.trim()}`,
     accept: 'application/vnd.github+json',
@@ -125,9 +132,10 @@ export function githubSource(settings                )         {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify({ query, variables: { owner, name } }),
+        signal,
       })
     } catch {
-      throw sourceError('offline', 'No connection to GitHub')
+      throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
     }
     if (res.status === 401 || res.status === 403) throw sourceError('auth', `GitHub refused the token (${res.status}). Check it in Settings.`)
     if (!res.ok) throw sourceError('other', `GitHub answered ${res.status}`)
@@ -187,6 +195,7 @@ export function githubSource(settings                )         {
       .map(([p, text]) => parseNote(p, text))
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
+    if (isRetired()) throw sourceError('other', 'Stopped')
     snapshot = { dest, at: Date.now(), hosts, texts, edits, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
@@ -227,6 +236,7 @@ export function githubSource(settings                )         {
     },
     notes: async () => (await current()).notes,
     createFile: async (path, text, message) => {
+      if (isRetired()) throw sourceError('other', 'Stopped: the app was reset or its settings changed')
       const bytes = new TextEncoder().encode(text)
       let binary = ''
       for (const b of bytes) binary += String.fromCharCode(b)
@@ -236,9 +246,10 @@ export function githubSource(settings                )         {
           method: 'PUT',
           headers: { ...headers, 'content-type': 'application/json' },
           body: JSON.stringify({ message, content: btoa(binary) }),
+          signal,
         })
       } catch {
-        throw sourceError('offline', 'No connection to GitHub')
+        throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
       }
       if (res.status === 201 || res.status === 200) return 'created'
       if (res.status === 401 || res.status === 403 || res.status === 404) {
@@ -251,7 +262,7 @@ export function githubSource(settings                )         {
         // arrived); anything else is a conflict to show, never a silent success.
         let existing                = null
         try {
-          const got = await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' } })
+          const got = await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' }, signal })
           if (got.ok) existing = await got.text()
         } catch {
           throw sourceError('offline', 'No connection to GitHub')

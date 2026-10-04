@@ -4,6 +4,7 @@ import { formatNote, isWebUrl, looksLikeSecret } from './core.js'
                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
+                                         
 import {
   changed,
   dropQueued,
@@ -11,6 +12,7 @@ import {
   errorText,
   isConfigured,
   isQueued,
+  newQueueId,
   putQueued,
   QUEUE_PREFIX,
   readQueue,
@@ -18,6 +20,7 @@ import {
   settings,
   state,
   toast,
+  UNKNOWN_DEST,
 } from './state.js'
                                                  
 
@@ -53,17 +56,22 @@ export async function loadAll() {
   }
 }
 
-// Each load gets a number; a reply that arrives after a newer load started is dropped, so a slow record can't
-// replace the one opened after it. Reloading the record already shown (a refresh) keeps its open sections.
+// Each load gets a number and remembers which source it was asked of; a reply that arrives after a newer load
+// started, or after Settings or a reset replaced the source, is dropped. So a slow record can't replace the one opened
+// after it, and an old repository's record can't appear under a new one. Reloading the record already shown, from
+// the same source (a refresh), keeps its open sections; a failed refresh keeps it on screen only in that case.
 let recordRequest = 0
 export async function loadRecord(path        ) {
   const request = ++recordRequest
-  const isSameRecord = state.record?.path === path
+  const generation = state.sourceGeneration
+  const dest = state.source?.dest ?? ''
+  const isSameRecord = state.record?.path === path && state.recordDest === dest
   try {
     if (!state.source) throw new Error('not connected')
     const record = await state.source.record(path)
-    if (request !== recordRequest) return
+    if (request !== recordRequest || generation !== state.sourceGeneration) return
     state.record = record
+    state.recordDest = dest
     state.recordError = ''
     if (isSameRecord) {
       state.open = new Set([...state.open].filter(k => Number(k) < record.sections.length))
@@ -73,11 +81,31 @@ export async function loadRecord(path        ) {
       state.pending = new Set()
     }
   } catch (error) {
-    if (request !== recordRequest) return
-    // A failed refresh keeps the record on screen; a failed navigation says why.
-    if (!isSameRecord) state.recordError = `Couldn't open ${path}: ${errorText(error)}`
+    if (request !== recordRequest || generation !== state.sourceGeneration) return
+    // A failed refresh of the same record from the same source keeps it on screen; anything else says why.
+    if (!isSameRecord) {
+      state.record = null
+      state.recordDest = ''
+      state.recordError = `Couldn't open ${path}: ${errorText(error)}`
+    }
   }
 }
+
+// Replaces the active source: stops its requests, invalidates work started for it, and clears what it showed.
+function replaceSource(next               ) {
+  state.abort.abort()
+  state.abort = new AbortController()
+  state.sourceGeneration++
+  state.source = next
+  state.data = null
+  state.notes = []
+  state.record = null
+  state.recordDest = ''
+  state.isOffline = false
+  state.error = ''
+}
+
+export const connectGitHub = () => githubSource(settings, state.abort.signal)
 
 // Sends the current repository's waiting notes in order and stops at the first failure, saying why. Safe to call any
 // time: a call that arrives while a send is running gets another pass. Only one window sends at a time where the
@@ -128,12 +156,14 @@ export async function flushQueue() {
   } finally {
     isFlushing = false
   }
+  // Show the sent notes as sent straight away, then again once the reload brings them back from GitHub.
   refreshQueue()
+  changed()
   if (sent > 0 && generation === state.sourceGeneration) {
     toast(sent === 1 ? 'Sent to GitHub' : `${sent} notes sent to GitHub`)
     await loadAll()
+    changed()
   }
-  changed()
 }
 
 export function setFilters(change                  ) {
@@ -175,12 +205,13 @@ export async function summarise(index        , isRedo         ) {
   const ask = state.source?.summarise
   if (!doc || !ask || state.pending.has(index)) return
   const path = doc.path
+  const generation = state.sourceGeneration
   state.pending.add(index)
   changed()
   try {
     const reply = await ask(path, index, isRedo)
-    // Only apply it if the same record is still open.
-    if (reply.ok && reply.summary && state.record?.path === path) {
+    // Only apply it if the same record, from the same source, is still open.
+    if (reply.ok && reply.summary && state.record?.path === path && generation === state.sourceGeneration) {
       state.record.sections[index].summary = reply.summary           
     } else if (!reply.ok) {
       toast(`Couldn't summarise: ${reply.error ?? 'unknown error'}`)
@@ -204,7 +235,7 @@ export async function saveDraft() {
   }
   const source = state.source
   if (!source?.createFile) return toast('Connect to GitHub in Settings first')
-  const file = formatNote(d, Date.now())
+  const file = formatNote(d, Date.now(), newQueueId())
   const title = (d.title.trim() || d.body.trim().split('\n')[0] || d.source.trim()).slice(0, 80)
   const project = d.kind === 'note' ? d.project : ''
   putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), createdAt: Date.now() })
@@ -237,13 +268,8 @@ export async function saveSettings() {
     return changed()
   }
   // A new destination: stop work for the old one and clear what it showed.
-  state.sourceGeneration++
-  state.source = githubSource(settings)
-  state.data = null
-  state.notes = []
-  state.record = null
-  state.isOffline = false
-  state.error = ''
+  replaceSource(null)
+  state.source = connectGitHub()
   state.settingsMessage = 'Connecting…'
   changed()
   await loadAll()
@@ -258,37 +284,47 @@ export async function saveSettings() {
   changed()
 }
 
+// Other open windows of the app reload when the token or a reset changes (see app.ts), so none keeps using it.
 export function forgetToken() {
+  replaceSource(null)
   settings.token = ''
   localStorage.setItem('hub.github', JSON.stringify(settings))
   state.settingsDraft = { ...settings }
-  state.sourceGeneration++
-  state.source = null
   state.settingsMessage = 'Token removed from this phone. Saved notes and the offline copy are still here.'
   changed()
 }
 
-// Everything the app keeps on this device: settings, token, unsent notes, offline copies, preferences.
-export function removeAllData() {
+// Everything the app keeps on this device: settings, token, unsent notes, offline copies, preferences. Requests
+// already running are stopped, and a new reset marker ('hub.epoch') means any source created before now refuses to
+// write an offline copy or send a note afterwards, in this window or another.
+export async function removeAllData() {
   const unsent = readQueue().length
   const warning = unsent > 0 ? `\n\n${unsent} note${unsent === 1 ? " hasn't" : "s haven't"} been sent yet and will be lost.` : ''
   if (!confirm(`Remove the token, settings, offline copies and unsent notes from this device?${warning}`)) return
+  replaceSource(null)
   const keys           = [...snapshotKeys()]
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
     if (key && (key.startsWith(QUEUE_PREFIX) || key.startsWith('hub.'))) keys.push(key)
   }
   for (const key of keys) localStorage.removeItem(key)
-  if ('caches' in globalThis) void caches.keys().then(names => names.forEach(n => void caches.delete(n)))
+  localStorage.setItem('hub.epoch', `${Date.now()}-${Math.random().toString(16).slice(2)}`)
   Object.assign(settings, { token: '', repo: '', apiBase: 'https://api.github.com' })
   state.settingsDraft = { ...settings }
-  state.sourceGeneration++
-  state.source = null
-  state.data = null
-  state.notes = []
-  state.record = null
+  state.draft = { ...EMPTY_DRAFT }
   refreshQueue()
-  state.settingsMessage = 'All hub data has been removed from this device.'
+  // The app's own offline copy of its pages (hub-* caches) holds no data; it's cleared too, and the page says if not.
+  let cacheNote = ''
+  if ('caches' in globalThis) {
+    const isHub = (n        ) => n.startsWith('hub-')
+    try {
+      await Promise.all((await caches.keys()).filter(isHub).map(n => caches.delete(n)))
+      if ((await caches.keys()).some(isHub)) throw new Error('still there')
+    } catch {
+      cacheNote = " The app's cached pages couldn't be cleared; they hold no notes or project data."
+    }
+  }
+  state.settingsMessage = `The token, settings, offline copies and unsent notes have been removed from this device.${cacheNote} The token itself stays valid until you revoke it on GitHub.`
   changed()
 }
 
@@ -297,7 +333,11 @@ export async function sendHeldHere(id        ) {
   const item = readQueue().find(q => q.id === id)
   const dest = state.source?.dest
   if (!item || !dest) return
-  if (!confirm(`Send "${item.title}" to ${settings.repo} instead of the repository it was written for?`)) return
+  const question =
+    item.dest === UNKNOWN_DEST
+      ? `Send "${item.title}" to ${settings.repo}? It was saved by an earlier version of the app, which didn't record which repository it was for.\n\n${item.text.slice(0, 400)}`
+      : `Send "${item.title}" to ${settings.repo} instead of the repository it was written for?\n\n${item.text.slice(0, 400)}`
+  if (!confirm(question)) return
   putQueued({ ...item, dest, conflict: undefined })
   refreshQueue()
   await flushQueue()
