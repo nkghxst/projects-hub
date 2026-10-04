@@ -9,6 +9,13 @@
                                                                              
                                                     
 
+                                         
+// Where a project stands for its owner: something waits on them, it's moving, it's on hold or blocked, or it's done.
+                                                                  
+// A sentence quoted from a record's current text where work waits on the owner, and where it was found.
+                                                  
+                                                                                                                          
+
                        
                   
               
@@ -20,7 +27,8 @@
                
                   
                
- 
+                       
+               
                                                                         
                                                  
                                                      
@@ -194,16 +202,21 @@ export function parseIndexRows(index        )             {
 
 export const headerOf = (record        ) => record.replace(/\r/g, '').split('\n').slice(0, HEADER_LINES).join('\n')
 
+// A project from its index row and the full text of its record (empty when there's none). `owner` is the owner's
+// first name, from profile.md (ownerOf), used to find what waits on them.
 export function buildProject(
   machine         ,
   row          ,
-  header        ,
+  record        ,
   edit                    ,
   nowMs        ,
   order        ,
+  owner = '',
 )          {
   const state = plain(row.state)
-  const dates = [...datesIn(header, nowMs), ...datesIn(row.state, nowMs)]
+  const dates = [...datesIn(headerOf(record), nowMs), ...datesIn(row.state, nowMs)]
+  const flags = FLAGS.filter(f => f.test.test(state)).map(f => f.flag)
+  const facts = recordFacts(record, row.state, owner)
   return {
     machine,
     name: row.name,
@@ -212,10 +225,19 @@ export function buildProject(
     checkedMs: dates.length > 0 ? Math.max(...dates) : null,
     editedMs: edit?.atMs ?? null,
     editedOn: edit?.by ?? '',
-    flags: FLAGS.filter(f => f.test.test(state)).map(f => f.flag),
+    flags,
     pairFile: '',
     order,
+    status: statusOf(flags, facts.waits),
+    ...facts,
   }
+}
+
+export function statusOf(flags        , waits        )                {
+  if (waits.length > 0) return 'waiting'
+  if (flags.includes('done')) return 'done'
+  if (flags.includes('blocked') || flags.includes('hold')) return 'hold'
+  return 'active'
 }
 
 // Records with the same file name on both machines point at each other.
@@ -414,6 +436,104 @@ export function parseDoc(path        , text        )                       {
     sections: sections.map(s => ({ title: s.title, body: s.body.trim() })),
     next: callout(lines, /^next\b/i),
     readFirst: callout(lines, /^read first\b/i),
+  }
+}
+
+// ---------- what a record says now: Next, what waits on the owner, who worked on it last ----------
+
+// The owner's first name, from profile.md's "# About <Name>" heading; read at runtime, so no name lives in this file.
+export function ownerOf(profile        )         {
+  return profile.match(/^# About ([^\s(]+)/m)?.[1] ?? ''
+}
+
+const escapeRegExp = (s        ) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Sentences where work waits on the owner: a decision, choice, approval, go-ahead or action that's theirs. It's a
+// keyword heuristic, so the app quotes the sentence rather than interpreting it, and it can miss some.
+                                                            
+function waitPatterns(owner        )               {
+  if (!owner) return { anywhere: [], inNext: [] }
+  const n = escapeRegExp(owner)
+  const asks = '(?:decision|choice|approval|go-ahead|review|input|answer|sign-off|confirmation|call)'
+  const acts = '(?:decide|choose|pick|approve|confirm|review|start|launch|run|test|check|install|reply|answer|sign off|accept)'
+  return {
+    anywhere: [
+      new RegExp(`\\b(?:wait(?:s|ing)?|await(?:s|ing)?|held|holds|pending|parked|paused|blocked)\\b[^.;]{0,30}?\\b(?:on|for|until)\\s+${n}\\b`, 'i'),
+      new RegExp(`\\bpending\\s+${n}\\b`, 'i'),
+      new RegExp(`\\b(?:pending|awaiting|until|after|needs?|requires?)\\s+${n}(?:'s|’s)\\s+(?:explicit\\s+|final\\s+)?${asks}\\b`, 'i'),
+      new RegExp(`\\b${n}\\s+(?:to|must|needs to|has to)\\s+${acts}\\b`, 'i'),
+      new RegExp(`\\b(?:decisions?|questions?)\\s+for\\s+${n}\\b`, 'i'),
+    ],
+    // "Sam reviews the build" is a to-do on a Next line, but elsewhere it usually describes a role ("Sam decides
+    // only", "Sam launches the app"), so the present tense only counts there.
+    inNext: [new RegExp(`\\b${n}\\s+(?:decides|chooses|picks|approves|confirms|reviews|tests|checks|starts|launches|installs|runs|signs off)\\b`, 'i')],
+  }
+}
+// "Next: …", "**Next:** …" or "**Next**: …", as a line or a list item.
+const NEXT_LINE = /^\s*(?:[-*+]\s+)?(?:\*\*next:\*\*|\*\*next\*\*:|next:)\s*(.*)$/i
+// A wait that has ended or is only being reported: these sentences are history, not a current ask.
+const NOT_WAITING = /\b(?:no longer|not (?:waiting|needed|blocked)|was waiting|were waiting|waited|resolved|withdrawn|superseded)\b/i
+
+// The sentences of some markdown, with list markers and struck-out text removed.
+function sentencesOf(md        )           {
+  const out           = []
+  for (const raw of md.replace(/\r/g, '').split('\n')) {
+    const line = raw.replace(/~~[^~]*~~/g, ' ').replace(LIST_ITEM, '').replace(/^#+\s+/, '').trim()
+    if (line === '' || line.startsWith('|')) continue
+    for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z"“(*])/)) if (s.trim()) out.push(s.trim())
+  }
+  return out
+}
+
+function findWaits(md        , where        , patterns              , isNext = false)         {
+  if (patterns.anywhere.length === 0) return []
+  return sentencesOf(md)
+    .filter(s => {
+      // Quoted text ("…", “…”, `…`) is someone else's words or an example, never the record's own ask.
+      const bare = s.replace(/"[^"]*"|“[^”]*”|`[^`]*`/g, ' ')
+      const usable = isNext || NEXT_LINE.test(s) ? [...patterns.anywhere, ...patterns.inNext] : patterns.anywhere
+      return usable.some(p => p.test(bare)) && !NOT_WAITING.test(bare)
+    })
+    // Quoted as plain text: bold and code marks dropped, and links reduced to their text.
+    .map(s => ({ text: plain(s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).slice(0, 280), where }))
+}
+
+// Claude or Codex, when the text names exactly one of them; Codeg when the work ran inside it.
+function providerIn(text        )                                                   {
+  const isClaude = /\bClaude\b/i.test(text)
+  const isCodex = /\bCodex\b/i.test(text)
+  return { provider: isClaude === isCodex ? null : isClaude ? 'claude' : 'codex', viaCodeg: /\bCodeg\b/i.test(text) }
+}
+
+const CURRENT_TITLE = /^(?:current|latest)\b/i
+
+// What a record says now. Only current text counts: the index row, the record's Next line, and its section titled
+// "Current…" or "Latest…" (none counts when no section is). Older checkpoints and undated sections are history.
+export function recordFacts(record        , rowState        , owner        )              {
+  const doc = parseDoc('', record)
+  const current = doc.sections.find(s => CURRENT_TITLE.test(s.title))
+  const patterns = waitPatterns(owner)
+  const seen = new Set        ()
+  const key = (text        ) => text.replace(/^[^:]{0,24}:\s*/, '').toLowerCase()
+  const waits = [
+    ...findWaits(rowState, 'index row', patterns),
+    ...(current ? findWaits(current.body, current.title, patterns) : []),
+    ...findWaits(doc.next, 'Next', patterns, true),
+  ].filter(w => !seen.has(key(w.text)) && seen.add(key(w.text)))
+  const rowNext = plain(rowState).match(/\bnext:\s*(.+?)\s*$/i)?.[1] ?? ''
+  // A plain "- Next: …" line in the current checkpoint counts as its Next when there's no bold **Next:** callout.
+  const bodyNext = current?.body.split('\n').map(l => l.match(NEXT_LINE)?.[1]?.trim() ?? '').find(Boolean) ?? ''
+  // Who worked on it last: the current heading, else its Updated line; no tag when neither names one provider.
+  const fromTitle = providerIn(current?.title ?? '')
+  const updated = current?.body.split('\n').find(l => /\*\*Updated:?\*\*/i.test(l)) ?? ''
+  const fromUpdated = providerIn(updated)
+  const who = fromTitle.provider ? fromTitle : fromUpdated
+  return {
+    next: doc.next || bodyNext || rowNext,
+    readFirst: doc.readFirst,
+    waits: waits.slice(0, 3),
+    provider: who.provider,
+    viaCodeg: fromTitle.viaCodeg || fromUpdated.viaCodeg,
   }
 }
 

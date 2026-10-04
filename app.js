@@ -128,8 +128,16 @@ document.addEventListener('click', async event => {
   const action = target.dataset.action
   const value = target.dataset.value ?? ''
   if (action === 'machine') setFilters({ machine: value                       })
-  else if (action === 'attention') setFilters({ attention: !state.filters.attention })
-  else if (action === 'clear') setFilters({ machine: 'all', attention: false, query: '' })
+  else if (action === 'clear') setFilters({ machine: 'all', query: '' })
+  else if (action === 'next-more') {
+    state.nextMore = !state.nextMore
+    changed()
+  } else if (action === 'pin') {
+    if (state.pins.has(value)) state.pins.delete(value)
+    else state.pins.add(value)
+    localStorage.setItem('hub.pins', JSON.stringify([...state.pins]))
+    changed()
+  }
   else if (action === 'refresh') await refresh()
   else if (action === 'back') history.length > 1 ? history.back() : (location.hash = '#/')
   else if (action === 'live-more') {
@@ -204,6 +212,19 @@ window.addEventListener('storage', event => {
   }
 })
 
+// Folding areas remember whether they're open, so a refresh doesn't close them ('toggle' doesn't bubble).
+document.addEventListener(
+  'toggle',
+  event => {
+    const el = event.target                      
+    const key = el.dataset?.key
+    if (!key) return
+    if (el.open) state.openDetails.add(key)
+    else state.openDetails.delete(key)
+  },
+  true,
+)
+
 document.addEventListener('change', event => {
   const el = event.target               
   if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
@@ -216,7 +237,6 @@ document.addEventListener('keydown', event => {
   const r = currentRoute()
   if (event.key === 'r') void refresh()
   else if (event.key === 'b' && r.name !== 'list') history.back()
-  else if (event.key === 'a' && r.name === 'list') setFilters({ attention: !state.filters.attention })
   else if (event.key === '/' && r.name === 'list') {
     event.preventDefault()
     ;(document.getElementById('query')                           )?.focus()

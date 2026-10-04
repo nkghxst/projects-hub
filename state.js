@@ -5,7 +5,7 @@ import { noteId, stableId } from './core.js'
 import { defaultRepo } from './source.js'
                                                                            
 
-                                                                                                 
+                                                                             
                                        
                                                                                                     
 // A note saved on the phone and not yet on GitHub. Its ID and path are fixed when it's saved, so a retry can't
@@ -24,7 +24,7 @@ import { defaultRepo } from './source.js'
  
 
 export const REFRESH_MS = 2 * 60 * 1000
-export const DEFAULT_FILTERS          = { machine: 'all', attention: false, query: '', sort: 'checkpoint' }
+export const DEFAULT_FILTERS          = { machine: 'all', query: '', sort: 'checkpoint' }
 export const EMPTY_DRAFT        = { kind: 'note', project: '', title: '', body: '', source: '' }
 
 export function readJson   (key        , fallback   )    {
@@ -120,7 +120,12 @@ export const state = {
   loadedAt: 0,
   error: '',
   isOffline: false,
-  filters: { ...DEFAULT_FILTERS, ...readJson                  ('hub.filters', {}), query: '' }           ,
+  filters: { ...DEFAULT_FILTERS, machine: readJson                  ('hub.filters', {}).machine ?? 'all', sort: readJson                  ('hub.filters', {}).sort ?? 'checkpoint' }           ,
+  // Projects pinned to the top of the home, on this device.
+  pins: new Set(readJson          ('hub.pins', [])),
+  // Which folding areas (Activity, Done) are open, kept across redraws.
+  openDetails: new Set        (),
+  nextMore: false,
   layout: (localStorage.getItem('hub.layout') === 'raw' ? 'raw' : 'readable')          ,
   record: null                     ,
   // The source the open record came from, so a record from one repository is never kept under another.

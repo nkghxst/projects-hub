@@ -1,7 +1,7 @@
 // Where the hub's data comes from. On the desktop, the local hub server (live Codeg work, summaries, notes as of the
 // last sync). On the phone, GitHub: the private claude-profile repo read through the GraphQL API with the owner's own
 // fine-grained token, and notes written through the contents API. Both give the views the same shapes.
-import { buildProject, commitBy, headerOf, MACHINES, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, PHONE_DIR } from './core.js'
+import { buildProject, commitBy, MACHINES, ownerOf, pairProjects, parseDoc, parseHosts, parseIndexRows, parseNote, PHONE_DIR } from './core.js'
                                                                                           
 
                     
@@ -108,7 +108,7 @@ export function destinationOf(settings                )         {
 }
 
                                                                                  
-                                                                                                                                       
+                                                                                                                                                       
 
 const SNAPSHOT_PREFIX = 'hub.gh.snapshot.'
 const snapshotKey = (dest        ) => `${SNAPSHOT_PREFIX}${dest}`
@@ -183,7 +183,7 @@ export function githubSource(settings                , signal              )    
       ideas: `${PHONE_DIR}/ideas`,
     }
     const first = await graphql                                                                 (
-      wrap([`sync: ${blob('sync.sh')}`, ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`)].join('\n')),
+      wrap([`sync: ${blob('sync.sh')}`, `profile: ${blob('profile.md')}`, ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`)].join('\n')),
     )
     const texts                         = {}
     for (const [alias, dir] of Object.entries(dirs)) {
@@ -194,6 +194,8 @@ export function githubSource(settings                , signal              )    
       }
     }
     const hosts = parseHosts(first.sync?.text ?? '')
+    // The owner's name, so the home can find what waits on them (kept out of the published app).
+    const owner = ownerOf(first.profile?.text ?? '')
 
     const records = Object.keys(texts).filter(p => !p.startsWith(`${PHONE_DIR}/`))
     const edits                         = {}
@@ -219,7 +221,7 @@ export function githubSource(settings                , signal              )    
       .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, texts, edits, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -306,7 +308,7 @@ function projectsFrom(s          )            {
     if (index === undefined) continue
     for (const row of parseIndexRows(index)) {
       const file = row.fileName ? `memory/${machine}/projects/${row.fileName}` : ''
-      list.push(buildProject(machine, row, headerOf(s.texts[file] ?? ''), s.edits[file], Date.now(), list.length))
+      list.push(buildProject(machine, row, s.texts[file] ?? '', s.edits[file], Date.now(), list.length, s.owner ?? ''))
     }
   }
   return pairProjects(list)

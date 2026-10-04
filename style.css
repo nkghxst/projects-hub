@@ -209,3 +209,23 @@ details summary { cursor: pointer; color: var(--muted); }
   padding: 8px 14px; opacity: 0; transition: opacity 0.2s; pointer-events: none;
 }
 #toast.show { opacity: 1; }
+
+/* The home: decisions, next actions, pinned, all projects by status, activity folded */
+.home-h { font-size: 15px; margin: 4px 0 8px; }
+.home-h.all { margin-top: 22px; }
+.decision { padding: 6px 0; border-top: 1px solid var(--line); }
+.decision:first-of-type { border-top: none; }
+.decision-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.quote { margin: 4px 0 2px; padding-left: 10px; border-left: 3px solid var(--line); }
+.next-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.next-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.group-h { font-size: 13.5px; margin: 14px 0 4px; display: flex; gap: 8px; align-items: baseline; }
+details.group > summary { list-style: none; cursor: pointer; }
+details.group > summary::before, details.activity > summary::before { content: '▸ '; color: var(--muted); }
+details.group[open] > summary::before, details.activity[open] > summary::before { content: '▾ '; }
+details.activity { margin-top: 22px; }
+details.activity > summary { list-style: none; }
+/* Who worked on a project last: a labelled pill, distinct in shape from the round machine dots. */
+.provider { font-size: 12px; line-height: 1.5; padding: 0 7px; border: 1px solid; border-radius: 999px; color: var(--ink); white-space: nowrap; }
+.provider.claude { border-color: #d97757; background: color-mix(in srgb, #d97757 16%, var(--card)); }
+.provider.codex { border-color: #10a37f; background: color-mix(in srgb, #10a37f 16%, var(--card)); }

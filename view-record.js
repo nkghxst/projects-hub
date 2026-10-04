@@ -4,7 +4,7 @@ import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liv
                                                        
 import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
-import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, queuedFor } from './parts.js'
+import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, providerTag, queuedFor } from './parts.js'
 import { captureHref, recordHref } from './routes.js'
                                                                 
 import { state } from './state.js'
@@ -102,7 +102,7 @@ export function renderRecord(doc            , data             )         {
     ${
       p
         ? `<div class="meta">${dot(p.machine)} ${machineName(p.machine)} record · checkpoint ${p.checkedMs !== null ? `${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : 'not dated'}
-            · edited ${p.editedMs !== null ? `${esc(fmtStamp(p.editedMs, now))} on ${esc(p.editedOn)}` : 'unknown'}</div>
+            · edited ${p.editedMs !== null ? `${esc(fmtStamp(p.editedMs, now))} on ${esc(p.editedOn)}` : 'unknown'} ${providerTag(p)}</div>
            ${p.flags.length > 0 ? `<div class="chips">${chips(p)}</div>` : ''}
            <section class="card"><div class="label">Index row</div>${md(p.state)}</section>`
         : ''
@@ -122,6 +122,7 @@ export function renderRecord(doc            , data             )         {
       ${p && behind && desktop ? `<button data-action="copy" data-text="${esc(catchUpPrompt(p, behind, desktop.worktreeRoot))}">Copy catch-up prompt</button>` : ''}
       ${desktop ? `<button data-action="copy" data-text="${esc(`${desktop.repoWindows}\\${doc.path.split('/').join('\\')}`)}">Copy path</button>` : ''}
       ${p && p.pairFile && other ? `<a class="button" href="${recordHref(p.pairFile)}">${machineName(other)} record →</a>` : ''}
+      ${p ? `<button data-action="pin" data-value="${esc(p.file)}" aria-pressed="${state.pins.has(p.file)}">${state.pins.has(p.file) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}
     </div>
     ${
       recordNotes.length + recordQueue.length > 0

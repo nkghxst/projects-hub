@@ -28,6 +28,13 @@ export function linkResolver(docPath        )               {
   }
 }
 
+// Who worked on a project last, from its current checkpoint: a labelled pill (the colour only helps scanning).
+export function providerTag(p                                        )         {
+  if (!p.provider) return ''
+  const name = p.provider === 'claude' ? 'Claude' : 'Codex'
+  return `<span class="provider ${p.provider}" title="Last worked on with ${name}${p.viaCodeg ? ' in Codeg' : ''}, per its current checkpoint">${name}${p.viaCodeg ? ' · Codeg' : ''}</span>`
+}
+
 export function chips(p         )         {
   return FLAGS.filter(x => p.flags.includes(x.flag))
     .map(x => `<span class="chip">${dot(x.tone, x.icon)} ${esc(x.label)}</span>`)
