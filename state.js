@@ -126,6 +126,8 @@ export const state = {
   // Which folding areas (Activity, Done) are open, kept across redraws.
   openDetails: new Set        (),
   nextMore: false,
+  // The usage panel under the top bar.
+  usageOpen: false,
   layout: (localStorage.getItem('hub.layout') === 'raw' ? 'raw' : 'readable')          ,
   record: null                     ,
   // The source the open record came from, so a record from one repository is never kept under another.

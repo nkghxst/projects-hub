@@ -1,6 +1,6 @@
 // Projects hub service worker (phone): keeps the app itself available offline. Data never goes through this
 // cache; GitHub API calls pass straight through, and the app keeps its own snapshot of the data.
-const VERSION = 'hub-dea6d280c1'
+const VERSION = 'hub-316fe35d4d'
 const SHELL = [
   './',
   './actions.js',
@@ -20,7 +20,8 @@ const SHELL = [
   './view-forms.js',
   './view-list.js',
   './view-record.js',
-  './view-setup.js'
+  './view-setup.js',
+  './view-usage.js'
 ]
 
 self.addEventListener('install', event => {

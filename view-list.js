@@ -1,7 +1,7 @@
 // The home, decision first: what waits on the owner, then next actions, pinned projects, and every project grouped
 // by where it stands. The freshness counts, the 14-day chart and live work fold into an Activity area at the bottom.
-import { activityChart, ageLabel, dayKeyOf, fmtDay, fmtStamp, freshTone, kpis, notesBehind, sorter, SORTS, usageRows } from './core.js'
-                                                                     
+import { activityChart, ageLabel, dayKeyOf, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
+                                                       
 import { escapeHtml as esc, inline } from './markdown.js'
 import { chips, dot, linkResolver, liveBox, machineName, notesFor, providerTag, queuedFor } from './parts.js'
 import { recordHref } from './routes.js'
@@ -66,45 +66,6 @@ function decisions(all           , now        )         {
         .join('')}
       ${help}
     </section>`
-}
-
-// Usage for each account: percent used as of the reading, the next reset, and when and where it was read. Folded, with
-// the headline numbers in its summary line. A window whose reset has passed since the reading shows as unknown.
-const USAGE_SHORT                         = { 'claude-desktop': 'Claude (desktop)', 'claude-laptop': 'Claude (laptop)', codex: 'Codex' }
-function usageCard(usage                            , now        )         {
-  if (!usage) return ''
-  const rows = usageRows(usage, now)
-  const headline =
-    rows
-      .filter(r => r.reading)
-      .map(r => {
-        const w = r.windows.find(x => x.usedPercent !== null)
-        return w ? `${USAGE_SHORT[r.account]} ${Math.round(w.usedPercent ?? 0)}% of ${w.name}` : `${USAGE_SHORT[r.account]}: reset passed`
-      })
-      .join(' · ') || 'no readings yet'
-  const windowHtml = (w                                          ) =>
-    w.usedPercent === null
-      ? `<div class="usage-window"><span class="usage-name">${esc(w.name)}</span>
-          <span class="muted">reset at ${esc(fmtStamp(w.resetsAtMs ?? now, now))} has passed; use since then is unknown</span></div>`
-      : `<div class="usage-window"><span class="usage-name">${esc(w.name)}</span>
-          <span class="meter" aria-hidden="true"><span style="width:${Math.min(100, Math.max(0, w.usedPercent))}%"></span></span>
-          <span>${esc(String(Math.round(w.usedPercent * 10) / 10))}% used</span>
-          <span class="muted">${w.resetsAtMs !== null ? `resets ${esc(fmtStamp(w.resetsAtMs, now))}` : 'reset time not reported'}</span></div>`
-  return `
-    <details class="card usage" data-key="usage"${openDetails('usage')}>
-      <summary><strong>Usage</strong> <span class="muted small">${esc(headline)}</span></summary>
-      ${rows
-        .map(
-          r => `<div class="usage-row">
-            <div><strong>${esc(r.label)}</strong>
-              ${r.reading ? `<span class="muted small">read ${esc(fmtStamp(r.reading.observedAtMs, now))} on ${esc(r.reading.origin)} (${esc(ageLabel(r.reading.observedAtMs, now, true))} ago)</span>` : ''}</div>
-            ${r.reading ? r.windows.map(windowHtml).join('') : `<div class="muted small">${esc(r.none)}</div>`}
-          </div>`,
-        )
-        .join('')}
-      <p class="muted small">Readings as each provider last reported them, not estimates: "used" is as of the time read.
-        Codex is one account, shown from whichever machine read it most recently.</p>
-    </details>`
 }
 
 function nextActions(list           , now        )         {
@@ -183,7 +144,6 @@ export function renderList(data      , width        )         {
 
   return `
     ${decisions(all, now)}
-    ${usageCard(data.usage, now)}
     ${nextActions(projects, now)}
     ${pinned.length > 0 ? `<section class="group pinned"><h2 class="home-h">Pinned</h2>${pinned.map(row).join('')}</section>` : ''}
 

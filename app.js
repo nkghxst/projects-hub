@@ -33,6 +33,7 @@ import { changed, isConfigured, onChange, openNotes, QUEUE_PREFIX, REFRESH_MS, r
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
 import { renderSetup } from './view-setup.js'
+import { renderUsageBar } from './view-usage.js'
 import { renderRecord } from './view-record.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
@@ -44,6 +45,7 @@ const bannerBox = document.getElementById('banners')
 const nav = document.getElementById('nav')               
 const tabbar = document.getElementById('tabbar')               
 const loadedLabel = document.getElementById('loaded')               
+const usageBar = document.getElementById('usagebar')               
 
 // Open notes plus ones still waiting to send: what the Inbox count shows.
 const inboxCount = () => openNotes().length + state.queue.length
@@ -136,6 +138,7 @@ function render() {
   view.innerHTML = html
   renderNav()
   renderTabbar()
+  usageBar.innerHTML = renderUsageBar(state.data?.usage, state.data?.now ?? Date.now())
   document.body.dataset.route = r.name
 
   const at = new Date(state.loadedAt)
@@ -148,11 +151,20 @@ onChange(render)
 
 document.addEventListener('click', async event => {
   const target = (event.target               ).closest('[data-action]')                      
+  // A click anywhere outside the usage bar closes its panel.
+  if (state.usageOpen && !(event.target               ).closest('#usagebar')) {
+    state.usageOpen = false
+    changed()
+  }
   if (!target) return
   const action = target.dataset.action
   const value = target.dataset.value ?? ''
   if (action === 'machine') setFilters({ machine: value                       })
   else if (action === 'clear') setFilters({ machine: 'all', query: '' })
+  else if (action === 'usage-toggle') {
+    state.usageOpen = !state.usageOpen
+    changed()
+  }
   else if (action === 'mark-handled') await setHandled(value, true)
   else if (action === 'reopen') await setHandled(value, false)
   else if (action === 'search') {
@@ -278,6 +290,11 @@ document.addEventListener('change', event => {
 
 document.addEventListener('keydown', event => {
   const el = event.target               
+  if (event.key === 'Escape' && state.usageOpen) {
+    state.usageOpen = false
+    changed()
+    return
+  }
   if (el.matches('input, select, textarea') || event.ctrlKey || event.metaKey || event.altKey) return
   const r = currentRoute()
   if (event.key === 'r') void refresh()

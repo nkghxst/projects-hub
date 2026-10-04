@@ -86,7 +86,7 @@ pre code { background: none; padding: 0; }
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 650; font-size: 16px; }
-#loaded { margin-left: auto; font-size: 12.5px; }
+#loaded { font-size: 12.5px; }
 #nav { margin-left: 4px; }
 
 main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
@@ -246,16 +246,31 @@ details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.
 .brief, .section .rows, .section .md { max-width: 78ch; }
 @media (max-width: 600px) { .brief-rows { grid-template-columns: 1fr; gap: 2px; } .brief-rows dd { margin-bottom: 6px; } }
 
-/* Usage: one row per account, a slim meter per window. The meter is neutral: it shows an amount, not a status. */
-details.usage > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
-details.usage > summary::before { content: '▸ '; color: var(--muted); }
-details.usage[open] > summary::before { content: '▾ '; }
+/* Usage in the top bar: small readings in the gap between the logo and Settings/Refresh, opening a panel below. */
+.usagebar { flex: 1; display: flex; justify-content: flex-end; min-width: 0; }
+.usage-toggle {
+  display: inline-flex; align-items: center; gap: 10px; max-width: 100%; overflow: hidden;
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12.5px;
+}
+.u { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.u-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.u-caret { color: var(--muted); }
+.usage-panel {
+  position: absolute; top: calc(100% + 4px); right: 12px; z-index: 5; margin: 0;
+  width: min(460px, calc(100vw - 24px)); max-height: 70vh; overflow: auto;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
 .usage-row { padding: 6px 0; border-top: 1px solid var(--line); }
 .usage-row:first-of-type { border-top: none; }
-.usage-window { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; padding-left: 10px; }
+.usage-window { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; padding-left: 14px; }
 .usage-name { min-width: 4.5em; color: var(--muted); }
 .meter { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--code); overflow: hidden; }
 .meter > span { display: block; height: 100%; background: var(--accent); }
+@media (max-width: 600px) {
+  /* On a phone the names give way to the coloured dots; the panel and the spoken label carry the names. */
+  .u-name { display: none; }
+  .usage-toggle { gap: 8px; padding: 3px 8px; }
+}
 
 /* The phone's bottom bar: four large targets within thumb reach, clear of the home indicator. Hidden on wide screens
    and while capturing, when the keyboard needs the room; on phones the top bar keeps only Settings and Refresh. */
