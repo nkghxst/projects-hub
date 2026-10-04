@@ -3,6 +3,7 @@
 import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR } from './core.js'
                                                         
 import { captureHref, currentRoute, recordHref } from './routes.js'
+import { initSeen, openRecord } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
                                          
 import {
@@ -33,6 +34,8 @@ export async function loadAll() {
     const data = await source.projects()
     if (generation !== state.sourceGeneration) return
     state.data = data
+    initSeen(data.projects)
+    noteRecordSeen()
     state.loadedAt = Date.now()
     state.error = ''
     state.isOffline = false
@@ -74,6 +77,7 @@ export async function loadRecord(path        ) {
     state.record = record
     state.recordDest = dest
     state.recordError = ''
+    noteRecordSeen()
     if (isSameRecord) {
       state.open = new Set([...state.open].filter(k => Number(k) < record.sections.length))
     } else {
@@ -176,10 +180,53 @@ export function setFilters(change                  ) {
   const { query: _query, ...kept } = state.filters
   localStorage.setItem('hub.filters', JSON.stringify(kept))
   changed()
+  if ('query' in change) scheduleSearch()
+}
+
+// Whole-record search for the filter text, a moment after typing stops; a reply for older text is dropped.
+let searchTimer                                           
+function scheduleSearch() {
+  clearTimeout(searchTimer)
+  const query = state.filters.query.trim()
+  if (query.length < 2) {
+    state.searchHits = null
+    state.searchFor = ''
+    return
+  }
+  searchTimer = setTimeout(() => void runSearch(query), 250)
+}
+async function runSearch(query        ) {
+  const search = state.source?.search
+  if (!search) return
+  try {
+    const hits = await search(query)
+    if (state.filters.query.trim() !== query) return
+    state.searchHits = hits
+    state.searchFor = query
+  } catch {
+    state.searchHits = []
+    state.searchFor = query
+  }
+  changed()
+}
+
+// Opening a record counts as looking at it: work out which sections changed since last time (kept for this visit),
+// then remember it as seen. Needs both the record and the project list; whichever arrives second does it.
+function noteRecordSeen() {
+  const r = currentRoute()
+  if (r.name !== 'record' || state.seenVisit === r.path || state.record?.path !== r.path) return
+  const p = state.data?.projects.find(x => x.file === r.path)
+  if (!p?.prints) return
+  state.recordChanged = openRecord(p)
+  state.seenVisit = r.path
 }
 
 export async function route() {
   const r = currentRoute()
+  if (r.name !== 'record' || r.path !== state.seenVisit) {
+    state.seenVisit = ''
+    state.recordChanged = new Set()
+  }
   if (r.name === 'record') {
     // A different record shows "Loading…" rather than the previous one while it's fetched.
     if (state.record?.path !== r.path) {
@@ -188,7 +235,15 @@ export async function route() {
     }
     changed()
     await loadRecord(r.path)
-    window.scrollTo(0, 0)
+    // A search result opens its section (unfolding "Other sections" if it's there) and scrolls to it.
+    if (r.section !== undefined && state.record && r.section >= 0 && r.section < state.record.sections.length) {
+      state.open.add(String(r.section))
+      state.openDetails.add('other-sections')
+      changed()
+      document.getElementById(`section-${r.section}`)?.closest('section')?.scrollIntoView({ block: 'start' })
+    } else {
+      window.scrollTo(0, 0)
+    }
   } else if (r.name === 'capture' && r.project) {
     state.draft = { ...state.draft, kind: 'note', project: r.project }
   } else if (r.name === 'settings') {

@@ -1,11 +1,12 @@
 // The home, decision first: what waits on the owner, then next actions, pinned projects, and every project grouped
 // by where it stands. The freshness counts, the 14-day chart and live work fold into an Activity area at the bottom.
 import { activityChart, ageLabel, dayKeyOf, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
-                                                       
+                                                                  
 import { escapeHtml as esc, inline } from './markdown.js'
-import { chips, dot, linkResolver, liveBox, machineName, notesFor, providerTag, queuedFor } from './parts.js'
+import { chips, dot, linkResolver, liveBox, machineName, notesFor, projectName, providerTag, queuedFor } from './parts.js'
 import { recordHref } from './routes.js'
                                        
+import { changeOf } from './seen.js'
 import { isPinned, state } from './state.js'
 
 const GROUPS                                             = [
@@ -89,6 +90,51 @@ function nextActions(list           , now        )         {
     </section>`
 }
 
+// Changed since this device last opened the record (or its other machine's record), or added since.
+function changeChip(p         , pair                     )         {
+  const mine = changeOf(p)
+  const theirs = pair ? changeOf(pair) : 'none'
+  if (mine === 'changed' || theirs === 'changed') return '<span class="chip changed" title="Changed since you last opened it on this device">● changed</span>'
+  if (mine === 'new') return '<span class="chip changed" title="Added since this device started keeping track">new</span>'
+  return ''
+}
+
+// When each device last published a change to the profile (a sync with nothing new leaves no trace, hence the wording).
+function freshness(published                   , now        )         {
+  if (!published) return ''
+  const part = (label        , tone                                , ms               ) =>
+    ms === null ? '' : `<span>${dot(tone)} ${label} ${esc(ageLabel(ms, now, true))} ago</span>`
+  const parts = [part('Desktop', 'desktop', published.desktop), part('Laptop', 'laptop', published.laptop), part('Phone', 'muted', published.phone)].filter(Boolean)
+  return parts.length === 0
+    ? ''
+    : `<p class="freshness muted small" title="The newest commit each device pushed. A sync with nothing new to publish doesn't show here.">Last change published: ${parts.join(' · ')}</p>`
+}
+
+// A search result: project, section, and an excerpt with the matched words highlighted (escaped first).
+function hitHtml(h           , now        )         {
+  let html = ''
+  let at = 0
+  for (const [a, b] of h.marks) {
+    html += `${esc(h.snippet.slice(at, a))}<mark>${esc(h.snippet.slice(a, b))}</mark>`
+    at = b
+  }
+  html += esc(h.snippet.slice(at))
+  return `<a class="hit" href="${recordHref(h.path, h.section)}">
+      <span class="hit-head"><strong>${esc(projectName(h.path))}</strong>
+        <span class="muted small">${esc(h.sectionTitle)}${h.dateMs !== null ? ` · ${esc(ageLabel(h.dateMs, now, false))}` : ''}</span></span>
+      <span class="snippet">${html}</span></a>`
+}
+
+function searchResults(query        , now        )         {
+  if (query.trim().length < 2) return ''
+  const hits = state.searchFor === query.trim() ? state.searchHits : null
+  return `
+    <section class="card search-hits">
+      <h2 class="home-h">In record text ${hits ? `<span class="muted">${hits.length === 30 ? '30+' : hits.length}</span>` : ''}</h2>
+      ${hits === null ? '<p class="muted">Searching…</p>' : hits.length === 0 ? '<p class="muted">No sections contain all of those words.</p>' : hits.map(h => hitHtml(h, now)).join('')}
+    </section>`
+}
+
 export function renderList(data      , width        )         {
   const f = state.filters
   const now = data.now
@@ -122,6 +168,7 @@ export function renderList(data      , width        )         {
             <span class="name">${esc(p.name)}</span>
             <span class="chip">${dot(p.machine)} ${machineName(p.machine)}</span>
             ${providerTag(p)}
+            ${changeChip(p, pair)}
             ${pair ? `<span class="chip" title="Also has a record on the other machine">⇄ also ${machineName(pair.machine)}${pair.checkedMs !== null ? ` · ${esc(ageLabel(pair.checkedMs, now, false))}` : ''}</span>` : ''}
             ${behind && behind.latestMs !== null ? `<span class="chip">${dot('good', '⚡')} active ${esc(ageLabel(behind.latestMs, now, true))} ago · notes behind</span>` : ''}
             ${noteCount > 0 ? `<span class="chip">✎ ${noteCount} phone note${noteCount === 1 ? '' : 's'}</span>` : ''}
@@ -143,13 +190,18 @@ export function renderList(data      , width        )         {
   }).join('')
 
   return `
-    ${decisions(all, now)}
-    ${nextActions(projects, now)}
-    ${pinned.length > 0 ? `<section class="group pinned"><h2 class="home-h">Pinned</h2>${pinned.map(row).join('')}</section>` : ''}
+    ${
+      f.query.trim().length >= 2
+        ? searchResults(f.query, now)
+        : `${decisions(all, now)}
+           ${nextActions(projects, now)}`
+    }
+    ${f.query.trim().length < 2 && pinned.length > 0 ? `<section class="group pinned"><h2 class="home-h">Pinned</h2>${pinned.map(row).join('')}</section>` : ''}
 
     <h2 class="home-h all">All projects <span class="muted">${projects.length}</span></h2>
+    ${freshness(data.published, now)}
     <div class="toolbar">
-      <input id="query" type="search" aria-label="Filter projects by name, state or next step" placeholder="Filter…  ( / )" value="${esc(f.query)}" autocomplete="off">
+      <input id="query" type="search" aria-label="Filter projects by name, state or next step" placeholder="Search projects and records…" value="${esc(f.query)}" autocomplete="off">
       <div class="segmented">
         ${(['all', 'desktop', 'laptop']         )
           .map(m => `<button data-action="machine" data-value="${m}" class="${f.machine === m ? 'on' : ''}" aria-pressed="${f.machine === m}">${m === 'all' ? 'All' : machineName(m)}</button>`)
@@ -181,7 +233,7 @@ export function renderList(data      , width        )         {
     </details>
     ${
       state.mode === 'local'
-        ? `<p class="muted small keys">Keys: <kbd>/</kbd> filter · <kbd>r</kbd> refresh · <kbd>b</kbd> back</p>`
+        ? `<p class="muted small keys">Keys: <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd> search · <kbd>r</kbd> refresh · <kbd>b</kbd> back</p>`
         : ''
     }`
 }

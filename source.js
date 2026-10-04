@@ -22,9 +22,11 @@ import {
   parseNote,
   parseUsageSnapshot,
   PHONE_DIR,
+  publishedBy,
+  searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                        
+                                                                                                                              
 
                     
              
@@ -34,6 +36,8 @@ import {
                                                          
                                                                                                       
                         
+                                                             
+                       
  
                                                                                                
                                                                             
@@ -55,6 +59,8 @@ import {
                                                                                               
                    
                                                           
+                                                                                                                    
+                                                  
  
 
 // An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
@@ -102,6 +108,7 @@ export function localSource()         {
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
     notesDir: DESKTOP_NOTES_DIR,
+    search: async query => (await getJson                       (`/api/search?q=${encodeURIComponent(query)}`)).hits,
     // The desktop app writes through the hub server, into this clone's memory/desktop/; sync.sh publishes it.
     createFile: async (path, text) => {
       const reply = await postHub                                                                ('/api/capture', { path, text })
@@ -175,6 +182,7 @@ export function destinationOf(settings                )         {
                            
                                                                               
                         
+                       
                
  
 
@@ -280,6 +288,7 @@ export function githubSource(settings                , signal              )    
     const edits                         = {}
     const days                           = {}
     const daysIncomplete           = []
+    let published                       
     if (records.length > 0) {
       // For each record, its newest commit (when and by which machine) and its commits over the chart's 14 days.
       const since = JSON.stringify(new Date(Date.now() - (CHART_DAYS + 1) * DAY_MS).toISOString())
@@ -289,7 +298,7 @@ export function githubSource(settings                , signal              )    
                 
         (
         wrap(
-          `defaultBranchRef { target { ... on Commit { ${records
+          `defaultBranchRef { target { ... on Commit { recent: history(first: 100) { nodes { committedDate messageHeadline } }\n${records
             .map(
               (p, i) =>
                 `e${i}: history(first: 1, path: ${JSON.stringify(p)}) { nodes { committedDate messageHeadline } }\n` +
@@ -297,6 +306,9 @@ export function githubSource(settings                , signal              )    
             )
             .join('\n')} } } }`,
         ),
+      )
+      published = publishedBy(
+        (history.defaultBranchRef?.target.recent?.nodes ?? []).map(n => ({ atMs: Date.parse(n.committedDate), by: commitBy(n.messageHeadline ?? '', hosts) })),
       )
       records.forEach((p, i) => {
         const target = history.defaultBranchRef?.target
@@ -321,7 +333,7 @@ export function githubSource(settings                , signal              )    
     )
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -341,7 +353,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage }
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published }
     },
     record: async path => {
       const s = await current()
@@ -364,6 +376,7 @@ export function githubSource(settings                , signal              )    
     },
     notes: async () => (await current()).notes,
     notesDir: PHONE_DIR,
+    search: async query => searchRecords((await current()).texts, query),
     // A mark is a new small file in memory/phone/handled/, created like a note.
     mark: async (note, handled) => {
       const file = formatHandledMark(note, handled, Date.now(), noteId(), PHONE_DIR)
@@ -439,7 +452,7 @@ export function snapshotAge(settings                )                {
 export function snapshotProjects(settings                )              {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

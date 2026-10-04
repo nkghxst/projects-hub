@@ -116,12 +116,14 @@ function sectionHtml(s             , i        , isCurrent         , resolve     
           ${md(summary.text)}
         </div>`
       : `<button class="link muted small summary-note" data-action="section" data-value="${i}" aria-controls="${bodyId}">✦ Summary available</button>`
+  const isChanged = state.recordChanged.has(s.title.trim().toLowerCase())
   return `
-    <section class="card section${isCurrent ? ' current' : ''}">
+    <section class="card section${isCurrent ? ' current' : ''}${isChanged ? ' changed' : ''}">
       <div class="section-bar">
         <h3 class="section-title"><button class="section-head" data-action="section" data-value="${i}" aria-expanded="${isOpen}" aria-controls="${bodyId}">${isOpen ? '▾' : '▸'} ${esc(s.title)}</button></h3>
         ${canSummarise && !summary && !isPending ? `<button class="link muted" data-action="summarise" data-value="${i}">✦ Summarise</button>` : ''}
         ${isPending ? '<span class="muted">✦ Summarising… (can take a minute)</span>' : ''}
+        ${isChanged ? '<span class="changed-badge">changed since you last looked</span>' : ''}
       </div>
       <div id="${bodyId}">
         ${summaryHtml}

@@ -1,7 +1,7 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
 import { noteId, stableId } from './core.js'
-                                                              
+                                                                         
 import { defaultRepo } from './source.js'
                                                                            
 
@@ -128,6 +128,13 @@ export const state = {
   nextMore: false,
   // The usage panel under the top bar.
   usageOpen: false,
+  // Matches in whole records for the home's filter text (null until a search has run for it).
+  searchHits: null                      ,
+  searchFor: '',
+  // Sections of the open record that changed since this device last opened it (by lower-case title), and which
+  // record that was worked out for, so a refresh keeps the marks for the rest of the visit.
+  recordChanged: new Set        (),
+  seenVisit: '',
   layout: (localStorage.getItem('hub.layout') === 'raw' ? 'raw' : 'readable')          ,
   record: null                     ,
   // The source the open record came from, so a record from one repository is never kept under another.

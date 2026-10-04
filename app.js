@@ -290,6 +290,13 @@ document.addEventListener('change', event => {
 
 document.addEventListener('keydown', event => {
   const el = event.target               
+  // Ctrl+K (⌘K on a Mac): search, from anywhere.
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    if (currentRoute().name !== 'list') location.hash = '#/'
+    setTimeout(() => (document.getElementById('query')                           )?.focus(), 60)
+    return
+  }
   if (event.key === 'Escape' && state.usageOpen) {
     state.usageOpen = false
     changed()

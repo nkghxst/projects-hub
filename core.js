@@ -50,6 +50,8 @@
                        
                                                                                                                    
                            
+                                                                                     
+                                
                
                                                                         
                                                  
@@ -255,6 +257,7 @@ export function buildProject(
     order,
     updatedDays: extra.updatedDays ?? [],
     activityComplete: extra.activityComplete ?? true,
+    prints: sectionPrints(record),
     ...facts,
   }
 }
@@ -269,10 +272,31 @@ export function pairProjects(list           )            {
   })
 }
 
-// Who made a commit: "auto-sync from HOST" becomes that host's machine; anything else keeps its subject.
+// Who made a commit: "auto-sync from HOST" becomes that host's machine, the phone's own commits ("Phone note: …",
+// "Phone idea: …", "Phone: handled …") become 'phone'; anything else keeps its subject.
 export function commitBy(subject        , hosts       )         {
   const host = subject.match(/^auto-sync from (\S+)/)?.[1]
-  return host ? (hosts[host] ?? host) : subject
+  if (host) return hosts[host] ?? host
+  return /^Phone\b/.test(subject) ? 'phone' : subject
+}
+
+// When each device last published a change to the profile: its newest commit. A sync with nothing new to publish
+// leaves no commit, so this is "last change published", not "last synced".
+                                                                                               
+export function publishedBy(commits          )            {
+  const out            = { desktop: null, laptop: null, phone: null }
+  for (const c of commits) {
+    if (c.by === 'desktop' || c.by === 'laptop' || c.by === 'phone') out[c.by] = Math.max(out[c.by] ?? 0, c.atMs)
+  }
+  return out
+}
+
+// A fingerprint of each section's text, keyed by its title in lower case: what a device remembers about a record so it
+// can tell later which sections changed. Sections are matched by title, so moving one doesn't count as a change.
+export function sectionPrints(record        )                         {
+  const out                         = {}
+  for (const s of parseDoc('', record).sections) out[s.title.trim().toLowerCase()] = stableId(s.body)
+  return out
 }
 
 // One `%ct<TAB>%s` line.
@@ -1075,6 +1099,79 @@ export function summaryPrompt(project        , sectionTitle        , body       
     'hashes, file paths and commit ids unless one is essential. Reply with markdown bullets only, no heading.\n\n' +
     `<section>\n${body}\n</section>`
   )
+}
+
+// ---------- search across whole records ----------
+
+// A section that has every word searched for (two letters or more each, any order, any case), with an excerpt
+// around the first match and the matched spans marked. Current sections rank first, then more matches, then newer.
+                         
+              
+                                                                     
+                 
+                      
+                 
+                                                             
+                           
+                       
+               
+ 
+const SNIPPET = 180
+
+function snippetAround(text        , terms          )                                                 {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const lower = flat.toLowerCase()
+  const first = Math.min(...terms.map(t => lower.indexOf(t)).filter(i => i >= 0))
+  let start = Math.max(0, first - 60)
+  if (start > 0) start = lower.indexOf(' ', start) + 1 || start
+  const end = Math.min(flat.length, start + SNIPPET)
+  const lead = start > 0 ? '…' : ''
+  const snippet = `${lead}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
+  const body = snippet.toLowerCase()
+  const marks                     = []
+  for (const t of terms) {
+    for (let i = body.indexOf(t); i !== -1; i = body.indexOf(t, i + t.length)) marks.push([i, i + t.length])
+  }
+  marks.sort((a, b) => a[0] - b[0])
+  // Overlapping matches (one term inside another) merge into one span.
+  const merged                     = []
+  for (const m of marks) {
+    const last = merged[merged.length - 1]
+    if (last && m[0] <= last[1]) last[1] = Math.max(last[1], m[1])
+    else merged.push([m[0], m[1]])
+  }
+  return { snippet, marks: merged }
+}
+
+export function searchRecords(texts                        , query        , nowMs = Date.now(), limit = 30)              {
+  const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(t => t.length >= 2))]
+  if (terms.length === 0) return []
+  const hits              = []
+  for (const [path, text] of Object.entries(texts)) {
+    if (!/^memory\/(?:desktop|laptop)\/projects\/[^/]+\.md$/.test(path) || path.endsWith('/INDEX.md')) continue
+    const doc = parseDoc(path, text)
+    const parts = [{ index: -1, title: doc.title, body: doc.preamble }, ...doc.sections.map((s, index) => ({ index, title: s.title, body: s.body }))]
+    const found              = []
+    for (const part of parts) {
+      const plainText = textOf(`${part.title}\n${part.body}`)
+      const hay = plainText.toLowerCase()
+      if (!terms.every(t => hay.includes(t))) continue
+      const count = terms.reduce((n, t) => n + hay.split(t).length - 1, 0)
+      const dates = datesIn(part.title, nowMs)
+      const { snippet, marks } = snippetAround(textOf(part.body) || plainText, terms)
+      found.push({
+        path,
+        section: part.index,
+        sectionTitle: part.index === -1 ? 'Top of the record' : part.title,
+        snippet,
+        marks,
+        dateMs: dates.length > 0 ? Math.max(...dates) : null,
+        score: count + (CURRENT_TITLE.test(part.title) ? 5 : 0),
+      })
+    }
+    hits.push(...found.sort((a, b) => b.score - a.score).slice(0, 3))
+  }
+  return hits.sort((a, b) => b.score - a.score || (b.dateMs ?? -1) - (a.dateMs ?? -1)).slice(0, limit)
 }
 
 // ---------- usage: readings of each account's rate-limit windows, never estimates ----------
