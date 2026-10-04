@@ -102,6 +102,7 @@ function restoreFocus(snap                                  ) {
 
 function render() {
   const focus = focusSnapshot()
+  const isUsageFocused = (document.activeElement                      )?.dataset?.action === 'usage-toggle'
   const r = currentRoute()
 
   let html = ''
@@ -146,6 +147,8 @@ function render() {
   loadedLabel.title = state.loadedAt ? `Loaded ${at.toLocaleString('en-GB')}; refreshes every 2 min` : ''
 
   restoreFocus(focus)
+  // The usage button is redrawn with the bar; keep keyboard focus on it.
+  if (isUsageFocused) (document.querySelector('[data-action="usage-toggle"]')                      )?.focus()
 }
 onChange(render)
 

@@ -1,9 +1,9 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR } from './core.js'
-                                                        
+import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf } from './core.js'
+                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
-import { initSeen, openRecord } from './seen.js'
+import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
                                          
 import {
@@ -34,6 +34,8 @@ export async function loadAll() {
     const data = await source.projects()
     if (generation !== state.sourceGeneration) return
     state.data = data
+    // New data may change what a search finds: run the active one again.
+    if (state.filters.query.trim().length >= 2 && state.searchFor) scheduleSearch()
     initSeen(data.projects)
     noteRecordSeen()
     state.loadedAt = Date.now()
@@ -100,6 +102,8 @@ export async function loadRecord(path        ) {
 
 // Replaces the active source: stops its requests, invalidates work started for it, and clears what it showed.
 function replaceSource(next               ) {
+  clearLocalMarks()
+  clearSearch()
   state.abort.abort()
   state.abort = new AbortController()
   state.sourceGeneration++
@@ -183,9 +187,18 @@ export function setFilters(change                  ) {
   if ('query' in change) scheduleSearch()
 }
 
-// Whole-record search for the filter text, a moment after typing stops; a reply for older text is dropped.
+// Whole-record search for the filter text, a moment after typing stops. Each request has a number and remembers the
+// connection it was made through; a reply or error for anything but the latest request, on the current connection,
+// is dropped, so an old answer can never replace a newer one or leave the box stuck on "Searching…".
 let searchTimer                                           
-function scheduleSearch() {
+let searchRequest = 0
+export function clearSearch() {
+  clearTimeout(searchTimer)
+  searchRequest++
+  state.searchHits = null
+  state.searchFor = ''
+}
+export function scheduleSearch() {
   clearTimeout(searchTimer)
   const query = state.filters.query.trim()
   if (query.length < 2) {
@@ -198,34 +211,50 @@ function scheduleSearch() {
 async function runSearch(query        ) {
   const search = state.source?.search
   if (!search) return
+  const request = ++searchRequest
+  const generation = state.sourceGeneration
+  const isCurrent = () => request === searchRequest && generation === state.sourceGeneration && state.filters.query.trim() === query
+  let hits              = []
   try {
-    const hits = await search(query)
-    if (state.filters.query.trim() !== query) return
-    state.searchHits = hits
-    state.searchFor = query
+    hits = await search(query)
   } catch {
-    state.searchHits = []
-    state.searchFor = query
+    // Shown as no results for this query.
   }
+  if (!isCurrent()) return
+  state.searchHits = hits
+  state.searchFor = query
   changed()
 }
 
-// Opening a record counts as looking at it: work out which sections changed since last time (kept for this visit),
-// then remember it as seen. Needs both the record and the project list; whichever arrives second does it.
+// Opening a record counts as looking at it. What counts as seen is the version actually on screen (not the project
+// list's, which can be newer or older): the sections that changed since this device's previous look are marked for
+// the visit, and that version is remembered. A refresh during the visit that shows a newer version marks everything
+// changed since the visit began, and remembers the newer version.
 function noteRecordSeen() {
   const r = currentRoute()
-  if (r.name !== 'record' || state.seenVisit === r.path || state.record?.path !== r.path) return
-  const p = state.data?.projects.find(x => x.file === r.path)
-  if (!p?.prints) return
-  state.recordChanged = openRecord(p)
-  state.seenVisit = r.path
+  if (r.name !== 'record' || state.record?.path !== r.path) return
+  const prints = printsOf(state.record)
+  const version = JSON.stringify(prints)
+  if (state.seenVisit === r.path && state.seenVersion === version) return
+  if (state.seenVisit !== r.path) {
+    state.seenVisit = r.path
+    state.visitBaseline = seenPrints(r.path)
+  }
+  const diff = state.visitBaseline ? diffPrints(state.visitBaseline, prints) : { changed: new Set        (), removed: [] }
+  state.recordChanged = diff.changed
+  state.recordRemoved = diff.removed
+  state.seenVersion = version
+  markSeen(r.path, prints)
 }
 
 export async function route() {
   const r = currentRoute()
   if (r.name !== 'record' || r.path !== state.seenVisit) {
     state.seenVisit = ''
+    state.seenVersion = ''
+    state.visitBaseline = null
     state.recordChanged = new Set()
+    state.recordRemoved = []
   }
   if (r.name === 'record') {
     // A different record shows "Loading…" rather than the previous one while it's fetched.
@@ -246,6 +275,9 @@ export async function route() {
     }
   } else if (r.name === 'capture' && r.project) {
     state.draft = { ...state.draft, kind: 'note', project: r.project }
+  } else if (r.name === 'capture' && !state.draft.body && !state.draft.title && !state.draft.source && !state.draft.project) {
+    // New from the bar with nothing started: a quick idea, since a note would first need a project.
+    state.draft = { ...state.draft, kind: 'idea' }
   } else if (r.name === 'settings') {
     state.settingsDraft = { ...state.settingsDraft }
   }
@@ -316,28 +348,35 @@ export async function saveDraft() {
 
 // Mark a note handled, or open again. The phone writes a mark file to GitHub; the desktop app through the hub server.
 // The note itself never changes. A mark needs a connection: offline, it says so rather than pretending.
-// Marks saved in this session, kept over loaded notes until a load agrees with them: a load that was already running
-// when a note was marked would otherwise bring back its older state for a moment.
-const localMarks = new Map                                                           ()
+// Marks this device saved, for the connection they were saved through. A loaded note older than the mark (a load that
+// was already running, or one that hasn't caught up) shows the mark instead; once a load carries a mark at least as
+// new, from this device or another (say, a later reopen on the phone), the load wins and the entry goes. Retiring
+// the connection clears them all.
+                                                                                                 
+const localMarks = new Map                   ()
+export const clearLocalMarks = () => localMarks.clear()
 function withLocalMarks(notes        )         {
   return notes.map(n => {
     const mark = localMarks.get(n.path)
-    if (!mark) return n
-    if (Boolean(n.handledAtMs) === Boolean(mark.handledAtMs)) {
+    if (!mark || mark.dest !== state.source?.dest || mark.generation !== state.sourceGeneration) return n
+    if ((n.markedAtMs ?? -1) >= mark.atMs) {
       localMarks.delete(n.path)
       return n
     }
-    return { ...n, ...mark }
+    return { ...n, handledAtMs: mark.handled ? mark.atMs : null, handledBy: mark.handled ? mark.by : '', markedAtMs: mark.atMs }
   })
 }
 
 export async function setHandled(note        , handled         ) {
   const source = state.source
   if (!source?.mark) return toast("Marking needs a connection to the repository")
+  const generation = state.sourceGeneration
   try {
-    await source.mark(note, handled)
-    // Show it straight away; loads keep showing it until they bring it back from the marks themselves.
-    localMarks.set(note, { handledAtMs: handled ? Date.now() : null, handledBy: handled ? (source.kind === 'local' ? 'desktop' : 'phone') : '' })
+    const atMs = await source.mark(note, handled)
+    // A reply for a connection that has since been replaced (another repository, a reset) changes nothing here.
+    if (generation !== state.sourceGeneration || state.source !== source) return
+    // Show it straight away; loads keep showing it until they carry a mark at least this new.
+    localMarks.set(note, { handled, atMs, by: source.kind === 'local' ? 'desktop' : 'phone', dest: source.dest, generation })
     state.notes = withLocalMarks(state.notes)
     toast(handled ? 'Marked handled' : 'Reopened')
     changed()

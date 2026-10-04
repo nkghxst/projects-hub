@@ -48,7 +48,9 @@ function briefHtml(p         , resolve              )         {
   const waits = p.waits ?? []
   const needs =
     waits.length === 0
-      ? 'Nothing found waiting on you in the current checkpoint.'
+      ? p.currentTitle
+        ? 'Nothing found waiting on you in the current checkpoint.'
+        : 'Nothing found waiting on you in the index row or a Next line (this record has no dated current checkpoint).'
       : waits
           .map(w => `<div>${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)} ${src(w.where === 'index row' || w.where === 'Next' ? w.where : 'current checkpoint')}</div>`)
           .join('')
@@ -67,7 +69,7 @@ function briefHtml(p         , resolve              )         {
       <dl class="brief-rows">
         <dt>State</dt><dd>${state}</dd>
         <dt>Needs you</dt><dd>${needs}</dd>
-        <dt>Next</dt><dd>${p.next ? `${inline(p.next, resolve)} ${src(nextSrc)}` : 'Not stated.'}</dd>
+        <dt>Next</dt><dd>${p.next ? `${inline(p.next, resolve)} ${src(nextSrc)}${p.status === 'hold' ? ' <span class="src muted small">· the project is on hold: this describes the work, it isn\'t a go-ahead</span>' : ''}` : 'Not stated.'}</dd>
         <dt>Read first</dt><dd>${p.readFirst ? `${inline(p.readFirst, resolve)}${p.isReadFirstQuoted ? ` ${src('quoted from the current checkpoint')}` : ''}` : 'Not stated.'}</dd>
       </dl>
       ${p.stateLine ? `<div class="muted small">Index row: ${inline(p.state, resolve)}</div>` : ''}
@@ -180,8 +182,18 @@ export function renderRecord(doc            , data             )         {
     </div>
     ${
       recordNotes.length + recordQueue.length > 0
-        ? `<section class="notes"><div class="label">Phone notes (${recordNotes.length + recordQueue.length})</div>
+        ? `<section class="notes"><div class="label">Notes (${recordNotes.length + recordQueue.length})</div>
             ${recordQueue.map(q => noteCard(q, true)).join('')}${recordNotes.map(n => noteCard(n, false)).join('')}</section>`
+        : ''
+    }
+    ${
+      state.recordRemoved.length > 0 || state.recordChanged.has('#top')
+        ? `<p class="changed-note">${[
+            state.recordChanged.has('#top') ? 'The text at the top changed since you last looked.' : '',
+            state.recordRemoved.length > 0 ? `Removed since you last looked: ${state.recordRemoved.map(t => `“${esc(t)}”`).join(', ')}.` : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}</p>`
         : ''
     }
     ${doc.preamble ? md(doc.preamble) : ''}

@@ -115,7 +115,7 @@ export const FLAGS                                                              
     label: 'unverified',
     tone: 'muted',
   },
-  { flag: 'hold', test: /(?<!\b(?:not|no longer)\s)\b(?:paused|on hold)\b|\bhold\b/i, icon: '⏸', label: 'on hold', tone: 'muted' },
+  { flag: 'hold', test: /\b(?:paused|on hold|hold)\b/i, icon: '⏸', label: 'on hold', tone: 'muted' },
   { flag: 'done', test: /^completed\b/i, icon: '✓', label: 'done', tone: 'good' },
 ]
 export const NEEDS_ATTENTION         = ['blocked', 'pending', 'unverified']
@@ -242,7 +242,7 @@ export function buildProject(
 )          {
   const state = plain(row.state)
   const dates = [...datesIn(headerOf(record), nowMs), ...datesIn(row.state, nowMs)]
-  const flags = FLAGS.filter(f => f.test.test(state)).map(f => f.flag)
+  const flags = FLAGS.filter(f => affirms(f.test, state)).map(f => f.flag)
   const facts = recordFacts(record, row.state, extra.owner ?? '')
   return {
     machine,
@@ -282,7 +282,8 @@ export function commitBy(subject        , hosts       )         {
 
 // When each device last published a change to the profile: its newest commit. A sync with nothing new to publish
 // leaves no commit, so this is "last change published", not "last synced".
-                                                                                               
+// `unpublished`: commits this computer has made but not yet pushed (the desktop server knows; the phone doesn't).
+                                                                                                                     
 export function publishedBy(commits          )            {
   const out            = { desktop: null, laptop: null, phone: null }
   for (const c of commits) {
@@ -291,13 +292,23 @@ export function publishedBy(commits          )            {
   return out
 }
 
-// A fingerprint of each section's text, keyed by its title in lower case: what a device remembers about a record so it
-// can tell later which sections changed. Sections are matched by title, so moving one doesn't count as a change.
-export function sectionPrints(record        )                         {
+// A fingerprint of each part of a record, keyed by its title in lower case: what a device remembers so it can tell later
+// which sections changed. The text above the first heading is '#top'; a second section with the same title is
+// "title (2)", and so on, so neither overwrites the other. Sections are matched by title, so moving one isn't a change.
+export const TOP_PRINT = '#top'
+export function printsOf(doc                                                                   )                         {
   const out                         = {}
-  for (const s of parseDoc('', record).sections) out[s.title.trim().toLowerCase()] = stableId(s.body)
+  if (doc.preamble.trim()) out[TOP_PRINT] = stableId(doc.preamble)
+  const seen = new Map                ()
+  for (const s of doc.sections) {
+    const title = s.title.trim().toLowerCase()
+    const n = (seen.get(title) ?? 0) + 1
+    seen.set(title, n)
+    out[n === 1 ? title : `${title} (${n})`] = stableId(s.body)
+  }
   return out
 }
+export const sectionPrints = (record        ) => printsOf(parseDoc('', record))
 
 // One `%ct<TAB>%s` line.
 export function parseCommit(line        , hosts        = {})         {
@@ -359,6 +370,9 @@ export const NOTE_DIRS = [PHONE_DIR, DESKTOP_NOTES_DIR]
                                                                                                                
                              
                     
+                                                                                                                     
+                                          
+                            
  
 export const noteOrigin = (path        ) => (path.startsWith('memory/desktop/') ? 'desktop' : path.startsWith('memory/laptop/') ? 'laptop' : 'phone')
 
@@ -397,10 +411,14 @@ export function parseHandledMark(path        , text        )                    
   return { note, handled: handled === 'yes', atMs, by: noteOrigin(path) }
 }
 
-// The newest mark for each note.
+// The newest mark for each note, by the marking device's clock (a device whose clock runs fast can win over a later
+// mark from one whose clock is slow; marks are rare enough for that to be acceptable). Equal times are settled by
+// device name, then by `handled` ("open" wins), so every device reaches the same answer.
 export function handledNotes(marks                        )                           {
   const out = new Map                     ()
-  for (const m of marks) if (m && (!out.has(m.note) || out.get(m.note) .atMs < m.atMs)) out.set(m.note, m)
+  const isNewer = (m             , o             ) =>
+    m.atMs !== o.atMs ? m.atMs > o.atMs : m.by !== o.by ? m.by > o.by : !m.handled && o.handled
+  for (const m of marks) if (m && (!out.has(m.note) || isNewer(m, out.get(m.note) ))) out.set(m.note, m)
   return out
 }
 
@@ -410,7 +428,7 @@ export function withHandled(notes        , marks                        )       
   return notes
     .map(n => {
       const m = state.get(n.path)
-      return { ...n, handledAtMs: m?.handled ? m.atMs : null, handledBy: m?.handled ? m.by : '' }
+      return { ...n, handledAtMs: m?.handled ? m.atMs : null, handledBy: m?.handled ? m.by : '', markedAtMs: m?.atMs ?? null }
     })
     .sort((a, b) => (a.path.split('/').pop()  < b.path.split('/').pop()  ? 1 : -1))
 }
@@ -526,15 +544,25 @@ function labelled(text        , label        )         {
     const m = lines[i].match(LABELLED) ?? lines[i].match(PLAIN_LABEL)
     if (!m || !label.test(m[1].trim())) continue
     if (m[2].trim() !== '') return m[2].trim()
+    // The list under it: bullets or numbers, indented or not, with wrapped lines joined to their item. It ends at a
+    // blank line, plain text, or a sibling bold field ("- **Pipeline:**").
     const items           = []
     for (let j = i + 1; j < lines.length; j++) {
-      const item = lines[j].match(/^\s+(?:[-*+]|\d+[.)])\s+(.*)$/) ?? lines[j].match(/^(?:\d+[.)])\s+(.*)$/)
-      if (!item) break
-      // Struck-out steps are done: "~~Back up~~ done 28 Sep" isn't a next step.
-      const step = item[1].replace(/~~[^~]*~~/g, '').trim()
-      if (step !== '' && !/^done\b/i.test(step)) items.push(step)
+      const line = lines[j]
+      if (line.trim() === '') break
+      const item = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.*)$/)
+      if (item) {
+        if (LABELLED.test(line)) break
+        // Struck-out steps are done: "~~Back up~~ done 28 Sep" isn't a next step.
+        const step = item[1].replace(/~~[^~]*~~/g, '').trim()
+        items.push(step !== '' && !/^done\b/i.test(step) ? step : '')
+      } else if (/^\s+\S/.test(line) && items.length > 0) {
+        items[items.length - 1] = `${items[items.length - 1]} ${line.trim()}`.trim()
+      } else {
+        break
+      }
     }
-    // Steps that end in their own full stop are just spaced; others get a semicolon between them.
+    for (let k = items.length - 1; k >= 0; k--) if (items[k] === '') items.splice(k, 1)
     if (items.length > 0) return items.map((step, k) => (k < items.length - 1 && !/[.!?;:]$/.test(step) ? `${step};` : step)).join(' ')
   }
   return ''
@@ -549,12 +577,20 @@ export function currentSectionIndex(titles          )         {
 
 const CURRENT_TITLE = /^(?:current|latest)\b/i
 // A nested heading for older material inside the current section ("### v0.3.0 install record (29 Sep …; superseded
-// …)"): the current text ends there, so history kept inside it isn't read as current. Found on a real record, 4 Oct.
-const HISTORY_HEADING =
-  /^#{3,}\s+.*(?:supersed|histor|previous|earlier|older|archive|\b(?:19|20)\d\d-\d\d-\d\d\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)/i
-function currentText(body        )         {
+// …)"): the current text ends there, so history kept inside it isn't read as current. A heading counts as history when
+// it says so (superseded, history, previous, earlier, older, archive) or carries a date older than the checkpoint's
+// own; a dated heading on the same day ("Verified today — 4 October 2026") is still current (Codex V3 review).
+const HISTORY_WORDS = /^#{3,}\s+.*(?:supersed|histor|previous|earlier|older|archive)/i
+function isHistoryHeading(line        , parentTitle        , nowMs        )          {
+  if (!/^#{3,}\s/.test(line)) return false
+  if (HISTORY_WORDS.test(line)) return true
+  const own = datesIn(line, nowMs)
+  const parent = datesIn(parentTitle, nowMs)
+  return own.length > 0 && parent.length > 0 && Math.max(...own) < Math.max(...parent)
+}
+function currentText(body        , parentTitle = '', nowMs = Date.now())         {
   const lines = body.split('\n')
-  const end = lines.findIndex(l => HISTORY_HEADING.test(l))
+  const end = lines.findIndex(l => isHistoryHeading(l, parentTitle, nowMs))
   return (end === -1 ? lines : lines.slice(0, end)).join('\n')
 }
 
@@ -567,7 +603,7 @@ function factScopes(preamble        , sections           )          {
   if (current) {
     return [
       { where: 'preamble', text: preamble, isCurrent: true },
-      { where: current.title, text: currentText(current.body), isCurrent: true },
+      { where: current.title, text: currentText(current.body, current.title), isCurrent: true },
     ]
   }
   return [
@@ -688,7 +724,7 @@ function sentencesOf(md        )           {
       canJoin = false
       continue
     }
-    if (canJoin && !isItem && !/[.!?:]$/.test(lines[lines.length - 1])) lines[lines.length - 1] += ` ${line}`
+    if (canJoin && !isItem && !/[.!?]$/.test(lines[lines.length - 1])) lines[lines.length - 1] += ` ${line}`
     else lines.push(line)
     canJoin = !/^\s*#/.test(raw)
   }
@@ -726,14 +762,29 @@ function providerIn(text        )                                               
 
 // Where a project stands, from what its index row and current checkpoint actually say: a stated pause or hold, or
 // words that it's moving. Nothing is assumed from silence: with neither, its status is "not stated".
-const PAUSED = /(?<!\b(?:not|no longer)\s)\b(?:paused|on hold|parked|stalled)\b|\bhold\b|(?<!\bun)\bblocked\b/i
+const PAUSED = /\b(?:paused|on hold|parked|stalled|hold|blocked)\b/i
 const MOVING = /\b(?:in progress|in use|active|building|ongoing|under ?way|working on|preparing|running|in development|started|next:)/i
 // Active also when the current checkpoint names a next step that isn't conditional ("if the issue is resumed, …").
+// Whether a status word is meant: at least one match that isn't negated before it ("not on hold", "no active work",
+// "nothing running") or undone after it ("hold lifted"). Found by the Codex V3 review.
+const NEGATED_BEFORE = /\b(?:not|no|never|without|nothing|isn't|aren't|wasn't|no longer)\s+(?:\w+\s+)?$/i
+const UNDONE_AFTER = /^\s+(?:lifted|released|removed|cleared|resolved|ended|over|undone)\b/i
+export function affirms(re        , text        )          {
+  const all = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
+  for (const m of text.matchAll(all)) {
+    const at = m.index ?? 0
+    const before = text.slice(Math.max(0, at - 24), at)
+    const after = text.slice(at + m[0].length, at + m[0].length + 20)
+    if (!NEGATED_BEFORE.test(before) && !UNDONE_AFTER.test(after)) return true
+  }
+  return false
+}
+
 export function statusOf(flags        , waits        , said = '', currentNext = '')                {
   if (waits.length > 0) return 'waiting'
   if (flags.includes('done')) return 'done'
-  if (flags.includes('blocked') || flags.includes('hold') || PAUSED.test(said)) return 'hold'
-  return MOVING.test(said) || (currentNext !== '' && !CONDITIONAL.test(currentNext)) ? 'active' : 'unstated'
+  if (flags.includes('blocked') || flags.includes('hold') || affirms(PAUSED, said)) return 'hold'
+  return affirms(MOVING, said) || (currentNext !== '' && !CONDITIONAL.test(currentNext)) ? 'active' : 'unstated'
 }
 
 // What a record says now. Only current text counts: the index row, the record's Next line, and its section titled
@@ -742,7 +793,7 @@ export function statusOf(flags        , waits        , said = '', currentNext = 
 export function recordFacts(record        , rowState        , owner        )              {
   const doc = parseDoc('', record)
   const current = doc.sections.find(s => CURRENT_TITLE.test(s.title))
-  const currentBody = current ? currentText(current.body) : ''
+  const currentBody = current ? currentText(current.body, current.title) : ''
   const patterns = waitPatterns(owner)
   const seen = new Set        ()
   const key = (text        ) => text.replace(/^[^:]{0,24}:\s*/, '').toLowerCase()
@@ -764,7 +815,7 @@ export function recordFacts(record        , rowState        , owner        )    
   const who = fromTitle.provider ? fromTitle : fromUpdated
   const stateLine = labelled(currentBody, /^(?:status|state)\b/i)
   const said = `${plain(rowState)}\n${stateLine}`
-  const flags = FLAGS.filter(f => f.test.test(plain(rowState))).map(f => f.flag)
+  const flags = FLAGS.filter(f => affirms(f.test, plain(rowState))).map(f => f.flag)
   return {
     next: doc.next || rowNext,
     nextWhere: doc.next ? doc.nextWhere : rowNext ? 'index row' : '',
@@ -785,7 +836,8 @@ export function recordFacts(record        , rowState        , owner        )    
 function quotedFallbacks(doc                                     , title        , currentBody        ) {
   const sentences = title ? sentencesOf(currentBody).map(textOf) : []
   const nextQuote = !doc.next ? (sentences.find(s => /^next\s+(?!:)[a-z]/i.test(s)) ?? '') : ''
-  const readQuote = !doc.readFirst ? (sentences.find(s => /^read\s+(?:first|current|the)\b/i.test(s)) ?? '') : ''
+  // A quoted "Read first: …" sentence loses its own label (the brief already says Read first).
+  const readQuote = !doc.readFirst ? (sentences.find(s => /^read\s+(?:first|current|the)\b/i.test(s)) ?? '').replace(/^read first:\s*/i, '') : ''
   return {
     isNextQuoted: nextQuote !== '',
     isReadFirstQuoted: readQuote !== '',
@@ -1115,8 +1167,11 @@ export function summaryPrompt(project        , sectionTitle        , body       
                            
                        
                
+                                                                          
+                    
  
 const SNIPPET = 180
+export const SEARCH_MAX = 200
 
 function snippetAround(text        , terms          )                                                 {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -1143,7 +1198,12 @@ function snippetAround(text        , terms          )                           
   return { snippet, marks: merged }
 }
 
+// Current sections first, then more matches, then newer.
+const byRank = (a           , b           ) =>
+  Number(b.isCurrent) - Number(a.isCurrent) || b.score - a.score || (b.dateMs ?? -1) - (a.dateMs ?? -1)
+
 export function searchRecords(texts                        , query        , nowMs = Date.now(), limit = 30)              {
+  if (query.length > SEARCH_MAX) return []
   const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(t => t.length >= 2))]
   if (terms.length === 0) return []
   const hits              = []
@@ -1158,7 +1218,10 @@ export function searchRecords(texts                        , query        , nowM
       if (!terms.every(t => hay.includes(t))) continue
       const count = terms.reduce((n, t) => n + hay.split(t).length - 1, 0)
       const dates = datesIn(part.title, nowMs)
-      const { snippet, marks } = snippetAround(textOf(part.body) || plainText, terms)
+      // The excerpt comes from the body, or from heading and body when only the heading matched.
+      const fromBody = snippetAround(textOf(part.body), terms)
+      const { snippet, marks } = fromBody.marks.length > 0 ? fromBody : snippetAround(plainText, terms)
+      const isCurrent = CURRENT_TITLE.test(part.title)
       found.push({
         path,
         section: part.index,
@@ -1166,12 +1229,13 @@ export function searchRecords(texts                        , query        , nowM
         snippet,
         marks,
         dateMs: dates.length > 0 ? Math.max(...dates) : null,
-        score: count + (CURRENT_TITLE.test(part.title) ? 5 : 0),
+        score: count,
+        isCurrent,
       })
     }
-    hits.push(...found.sort((a, b) => b.score - a.score).slice(0, 3))
+    hits.push(...found.sort(byRank).slice(0, 3))
   }
-  return hits.sort((a, b) => b.score - a.score || (b.dateMs ?? -1) - (a.dateMs ?? -1)).slice(0, limit)
+  return hits.sort(byRank).slice(0, limit)
 }
 
 // ---------- usage: readings of each account's rate-limit windows, never estimates ----------
@@ -1265,7 +1329,13 @@ const isReading = (r         )                    => {
     (x.origin === 'desktop' || x.origin === 'laptop') &&
     Number.isFinite(x.observedAtMs) &&
     Array.isArray(x.windows) &&
-    x.windows.every(w => typeof w?.name === 'string' && isPercent(w.usedPercent))
+    x.windows.every(
+      w =>
+        typeof w?.name === 'string' &&
+        isPercent(w.usedPercent) &&
+        (w.resetsAtMs === null || (typeof w.resetsAtMs === 'number' && Number.isFinite(w.resetsAtMs))) &&
+        (w.windowMinutes === null || (typeof w.windowMinutes === 'number' && w.windowMinutes > 0)),
+    )
   )
 }
 export function parseUsageSnapshot(md        )                       {

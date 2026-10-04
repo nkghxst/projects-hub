@@ -255,6 +255,8 @@ details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.
 .u { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .u-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .u-caret { color: var(--muted); }
+.u-short { display: none; }
+.u-age { font-size: 11px; }
 .usage-panel {
   position: absolute; top: calc(100% + 4px); right: 12px; z-index: 5; margin: 0;
   width: min(460px, calc(100vw - 24px)); max-height: 70vh; overflow: auto;
@@ -269,6 +271,7 @@ details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.
 @media (max-width: 600px) {
   /* On a phone the names give way to the coloured dots; the panel and the spoken label carry the names. */
   .u-name { display: none; }
+  .u-short { display: inline; color: var(--muted); }
   .usage-toggle { gap: 8px; padding: 3px 8px; }
 }
 
@@ -313,3 +316,5 @@ details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.
 .freshness { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: -4px 0 8px; }
 .card.section { scroll-margin-top: 64px; }
 @media (max-width: 600px) { .card.section { scroll-margin-top: 104px; } }
+.changed-note { font-size: 13px; color: var(--link); margin: 6px 0; }
+.warning-text { color: var(--danger); }

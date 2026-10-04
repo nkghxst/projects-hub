@@ -99,15 +99,20 @@ function changeChip(p         , pair                     )         {
   return ''
 }
 
-// When each device last published a change to the profile (a sync with nothing new leaves no trace, hence the wording).
+// When each device last published a change to the profile: its newest commit on GitHub (on the desktop, as of this
+// clone's last sync). A sync with nothing new leaves no trace, hence "change published", not "synced". Commits made
+// here but not yet pushed are named, so they aren't mistaken for published ones.
 function freshness(published                   , now        )         {
   if (!published) return ''
   const part = (label        , tone                                , ms               ) =>
     ms === null ? '' : `<span>${dot(tone)} ${label} ${esc(ageLabel(ms, now, true))} ago</span>`
   const parts = [part('Desktop', 'desktop', published.desktop), part('Laptop', 'laptop', published.laptop), part('Phone', 'muted', published.phone)].filter(Boolean)
-  return parts.length === 0
-    ? ''
-    : `<p class="freshness muted small" title="The newest commit each device pushed. A sync with nothing new to publish doesn't show here.">Last change published: ${parts.join(' · ')}</p>`
+  const pending = published.unpublished
+    ? `<span class="warning-text">${published.unpublished} change${published.unpublished === 1 ? '' : 's'} on this computer not yet published</span>`
+    : ''
+  if (parts.length === 0 && !pending) return ''
+  const where = state.mode === 'local' ? "GitHub's copy as of this computer's last sync" : 'GitHub'
+  return `<p class="freshness muted small" title="The newest commit from each device on ${where}. A sync with nothing new to publish doesn't show here.">Last change published: ${[...parts, pending].filter(Boolean).join(' · ')}</p>`
 }
 
 // A search result: project, section, and an excerpt with the matched words highlighted (escaped first).
@@ -127,7 +132,10 @@ function hitHtml(h           , now        )         {
 
 function searchResults(query        , now        )         {
   if (query.trim().length < 2) return ''
-  const hits = state.searchFor === query.trim() ? state.searchHits : null
+  // Results follow the machine filter, like the project list.
+  const machine = state.filters.machine
+  const all = state.searchFor === query.trim() ? state.searchHits : null
+  const hits = all && machine !== 'all' ? all.filter(h => h.path.startsWith(`memory/${machine}/`)) : all
   return `
     <section class="card search-hits">
       <h2 class="home-h">In record text ${hits ? `<span class="muted">${hits.length === 30 ? '30+' : hits.length}</span>` : ''}</h2>
@@ -171,7 +179,7 @@ export function renderList(data      , width        )         {
             ${changeChip(p, pair)}
             ${pair ? `<span class="chip" title="Also has a record on the other machine">⇄ also ${machineName(pair.machine)}${pair.checkedMs !== null ? ` · ${esc(ageLabel(pair.checkedMs, now, false))}` : ''}</span>` : ''}
             ${behind && behind.latestMs !== null ? `<span class="chip">${dot('good', '⚡')} active ${esc(ageLabel(behind.latestMs, now, true))} ago · notes behind</span>` : ''}
-            ${noteCount > 0 ? `<span class="chip">✎ ${noteCount} phone note${noteCount === 1 ? '' : 's'}</span>` : ''}
+            ${noteCount > 0 ? `<span class="chip">✎ ${noteCount} note${noteCount === 1 ? '' : 's'}</span>` : ''}
             ${chips(p)}
           </span>
           <span class="state">${esc(p.state)}</span>
@@ -201,7 +209,7 @@ export function renderList(data      , width        )         {
     <h2 class="home-h all">All projects <span class="muted">${projects.length}</span></h2>
     ${freshness(data.published, now)}
     <div class="toolbar">
-      <input id="query" type="search" aria-label="Filter projects by name, state or next step" placeholder="Search projects and records…" value="${esc(f.query)}" autocomplete="off">
+      <input id="query" type="search" aria-label="Search projects and record text" placeholder="Search projects and records…" value="${esc(f.query)}" autocomplete="off">
       <div class="segmented">
         ${(['all', 'desktop', 'laptop']         )
           .map(m => `<button data-action="machine" data-value="${m}" class="${f.machine === m ? 'on' : ''}" aria-pressed="${f.machine === m}">${m === 'all' ? 'All' : machineName(m)}</button>`)

@@ -58,7 +58,8 @@ import {
                                                                                                                 
                                                                                               
                    
-                                                          
+                                                                                     
+                                                            
                                                                                                                     
                                                   
  
@@ -116,8 +117,9 @@ export function localSource()         {
       return reply.result ?? 'created'
     },
     mark: async (note, handled) => {
-      const reply = await postHub                                 ('/api/mark', { note, handled })
-      if (!reply.ok) throw sourceError('other', reply.error ?? 'The hub refused the mark')
+      const reply = await postHub                                                ('/api/mark', { note, handled })
+      if (!reply.ok || typeof reply.atMs !== 'number') throw sourceError('other', reply.error ?? 'The hub refused the mark')
+      return reply.atMs
     },
     summarise: async (path, index, isRedo, hash) => {
       const res = await fetch('/api/summarise', {
@@ -379,8 +381,10 @@ export function githubSource(settings                , signal              )    
     search: async query => searchRecords((await current()).texts, query),
     // A mark is a new small file in memory/phone/handled/, created like a note.
     mark: async (note, handled) => {
-      const file = formatHandledMark(note, handled, Date.now(), noteId(), PHONE_DIR)
+      const atMs = Date.now()
+      const file = formatHandledMark(note, handled, atMs, noteId(), PHONE_DIR)
       await createFile(file.path, file.text, `Phone: ${handled ? 'handled' : 'reopened'} ${note.split('/').pop()}`)
+      return atMs
     },
     createFile: async (path, text, message) => createFile(path, text, message),
   }
@@ -403,6 +407,7 @@ export function githubSource(settings                , signal              )    
       throw isRetired() ? sourceError('other', 'Stopped') : sourceError('offline', 'No connection to GitHub')
     }
     if (res.status === 201 || res.status === 200) return 'created'
+    if (isRateLimited(res)) throw sourceError('offline', 'GitHub is limiting requests for now; the note is kept and will send later.')
     if (res.status === 401 || res.status === 403 || res.status === 404) {
       throw sourceError('auth', `GitHub refused the note (${res.status}). The token needs Contents: read and write on ${settings.repo}.`)
     }

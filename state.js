@@ -134,7 +134,10 @@ export const state = {
   // Sections of the open record that changed since this device last opened it (by lower-case title), and which
   // record that was worked out for, so a refresh keeps the marks for the rest of the visit.
   recordChanged: new Set        (),
+  recordRemoved: []            ,
   seenVisit: '',
+  seenVersion: '',
+  visitBaseline: null                                 ,
   layout: (localStorage.getItem('hub.layout') === 'raw' ? 'raw' : 'readable')          ,
   record: null                     ,
   // The source the open record came from, so a record from one repository is never kept under another.

@@ -1,46 +1,60 @@
-// What this device last saw of each record: the fingerprint of every section (by title), so the home can mark records
-// that changed since they were last opened, and a record can mark which of its sections changed. Kept per device.
-// The first time the app runs, everything counts as already seen, so marks start from then.
+// What this device last saw of each record: the fingerprint of every part of it (sectionPrints), so the home can mark
+// records that changed since they were last opened, and a record can mark which of its sections changed or went.
+// Kept per device and per repository. The first time the project list loads, everything counts as already seen, so
+// marks start from then.
                                         
-import { readJson } from './state.js'
+import { readJson, state } from './state.js'
 
-                                                                                   
-const KEY = 'hub.seen'
+                                    
+                                                                    
 
-const read = () => readJson             (KEY, null)
+const key = () => `hub.seen.${state.source?.dest ?? 'local'}`
+const read = () => readJson             (key(), null)
 function write(seen      ) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(seen))
+    localStorage.setItem(key(), JSON.stringify(seen))
   } catch {
     // Storage full: marks just won't move on until there's room.
   }
 }
 
-function changedTitles(before                        , now                        )              {
-  return new Set(Object.keys(now).filter(t => before[t] !== now[t]))
+// Every part that's new, different or gone, comparing both sides (a removed section counts too).
+export function diffPrints(before        , now        )                                              {
+  const changed = new Set(Object.keys(now).filter(t => before[t] !== now[t]))
+  const removed = Object.keys(before).filter(t => !(t in now))
+  return { changed, removed }
 }
 
-export function initSeen(projects           ) {
-  if (read()) return
-  write({ baselineAt: Date.now(), records: Object.fromEntries(projects.filter(p => p.file && p.prints).map(p => [p.file, p.prints])) })
+export function initSeen(projects                                    ) {
+  const seen = read() ?? { records: {} }
+  if (seen.baselineAt) return
+  for (const p of projects) if (p.file && p.prints && !seen.records[p.file]) seen.records[p.file] = p.prints
+  seen.baselineAt = Date.now()
+  write(seen)
 }
 
-// 'changed': a section is new or different since this device last opened it; 'new': the record appeared since then.
+// 'changed': a part is new, different or gone since this device last opened it; 'new': the record appeared since.
 export function changeOf(p                                  )                             {
   const seen = read()
-  if (!seen || !p.file || !p.prints) return 'none'
+  if (!seen?.baselineAt || !p.file || !p.prints) return 'none'
   const before = seen.records[p.file]
   if (!before) return 'new'
-  return changedTitles(before, p.prints).size > 0 ? 'changed' : 'none'
+  const { changed, removed } = diffPrints(before, p.prints)
+  return changed.size > 0 || removed.length > 0 ? 'changed' : 'none'
 }
 
-// Opening a record: the sections that changed since last time (none for a record never opened before), and from now
-// on it counts as seen.
-export function openRecord(p                                  )              {
-  const seen = read() ?? { baselineAt: Date.now(), records: {} }
-  const before = seen.records[p.file]
-  const changed = before ? changedTitles(before, p.prints) : new Set        ()
-  seen.records[p.file] = p.prints
+// What this device last saw of a record (null if never), and remembering a version as seen.
+export const seenPrints = (file        )                => read()?.records[file] ?? null
+export function markSeen(file        , prints        ) {
+  const seen = read() ?? { records: {} }
+  seen.records[file] = prints
   write(seen)
-  return changed
+}
+
+// Opening a record with these prints: the sections that changed since last time (none for a record never opened
+// before), and from now on this version counts as seen.
+export function openRecord(p                                  )              {
+  const before = seenPrints(p.file)
+  markSeen(p.file, p.prints)
+  return before ? diffPrints(before, p.prints).changed : new Set        ()
 }

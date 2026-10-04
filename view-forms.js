@@ -27,13 +27,13 @@ export function renderInbox()         {
     <h2 class="title">Inbox</h2>
     <p class="muted">${
       state.mode === 'local'
-        ? 'Notes and ideas captured on the phone, as of this clone’s last profile sync.'
-        : 'Notes and ideas from this phone, stored in claude-profile under memory/phone/.'
+        ? 'Notes and ideas from your devices, as of this clone’s last profile sync.'
+        : 'Notes and ideas from your devices, stored in claude-profile (memory/phone/ and memory/desktop/).'
     }</p>
     <div class="toolbar">
       <div class="segmented" aria-label="Show">
         ${(['new', 'handled', 'all']         )
-          .map(k => `<button data-action="inbox-state" data-value="${k}" class="${status === k ? 'on' : ''}" aria-pressed="${status === k}">${k === 'new' ? 'New' : k === 'handled' ? 'Handled' : 'Everything'}</button>`)
+          .map(k => `<button data-action="inbox-state" data-value="${k}" class="${status === k ? 'on' : ''}" aria-pressed="${status === k}">${k === 'new' ? 'Open' : k === 'handled' ? 'Handled' : 'Everything'}</button>`)
           .join('')}
       </div>
       <div class="segmented" aria-label="Kind">
@@ -69,11 +69,11 @@ export function renderInbox()         {
     ${notes.map(n => noteCard(n, false)).join('') || (queued.length === 0 ? emptyInbox(canCapture) : '')}`
 }
 
-// What to do when there's nothing yet: on the desktop, when phone notes arrive; on the phone, a way to start one.
+// What to do when there's nothing yet: on the desktop, how notes arrive; on the phone, a way to start one.
 function emptyInbox(canCapture         )         {
   if (state.mode === 'local') {
-    return `<p class="muted">No phone notes yet. A note captured on the phone shows here once it's on GitHub and this
-      machine's next profile sync has pulled it (sessions sync when they start and end).</p>`
+    return `<p class="muted">Nothing here. Use ✎ Note to capture one on this computer; notes from the phone show here
+      once this machine's next profile sync has pulled them (sessions sync when they start and end).</p>`
   }
   return canCapture
     ? `<p class="muted">Nothing here yet.</p><p><a class="button primary" href="${captureHref()}" data-action="new-idea">✎ Capture an idea</a></p>`

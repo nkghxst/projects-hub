@@ -15,11 +15,16 @@ function headline(row          ) {
   return row.windows.filter(w => w.usedPercent !== null).sort((a, b) => (b.usedPercent ?? 0) - (a.usedPercent ?? 0))[0] ?? null
 }
 
-function shortName(row          , rows            )         {
-  if (row.account === 'codex') return 'Codex'
+// The name on the chip, and a shorter one for phones, so the reading never depends on colour alone (Codex V3 review).
+function names(row          , rows            )                                  {
+  if (row.account === 'codex') return { name: 'Codex', short: 'Cx' }
   const bothClaude = rows.filter(r => r.account !== 'codex' && r.reading).length > 1
-  return bothClaude ? (row.account === 'claude-desktop' ? 'Claude D' : 'Claude L') : 'Claude'
+  if (!bothClaude) return { name: 'Claude', short: 'Cl' }
+  return row.account === 'claude-desktop' ? { name: 'Claude D', short: 'Cl·D' } : { name: 'Claude L', short: 'Cl·L' }
 }
+
+// Readings over an hour old show their age on the chip itself, so an old figure can't pass for a fresh one.
+const STALE_MS = 60 * 60 * 1000
 
 function panelHtml(rows            , now        )         {
   const windowHtml = (w                             ) =>
@@ -53,12 +58,24 @@ export function renderUsageBar(usage                            , now        )  
   if (shown.length === 0) return ''
   const chips = shown.map(r => {
     const w = headline(r)
-    return { name: shortName(r, rows), account: r.account, text: w ? `${Math.round(w.usedPercent ?? 0)}%` : '?', said: w ? `${Math.round(w.usedPercent ?? 0)}% of ${w.name}` : 'reset passed, use unknown' }
+    const observed = r.reading?.observedAtMs ?? now
+    const age = ageLabel(observed, now, true)
+    return {
+      ...names(r, rows),
+      account: r.account,
+      text: w ? `${Math.round(w.usedPercent ?? 0)}%` : '?',
+      age: now - observed > STALE_MS ? age : '',
+      said: `${w ? `${Math.round(w.usedPercent ?? 0)}% of ${w.name}` : 'reset passed, use unknown'}, read ${age} ago`,
+    }
   })
   const label = `Usage: ${chips.map(c => `${c.name} ${c.said}`).join('; ')}. ${state.usageOpen ? 'Hide' : 'Show'} details`
   return `
     <button type="button" class="usage-toggle" data-action="usage-toggle" aria-expanded="${state.usageOpen}" aria-controls="usage-panel" aria-label="${esc(label)}" title="Usage">
-      ${chips.map(c => `<span class="u"><span class="u-dot" style="background:${DOT[c.account]}"></span><span class="u-name">${esc(c.name)}</span> ${esc(c.text)}</span>`).join('')}
+      ${chips
+        .map(
+          c => `<span class="u"><span class="u-dot" style="background:${DOT[c.account]}"></span><span class="u-name">${esc(c.name)}</span><span class="u-short">${esc(c.short)}</span> ${esc(c.text)}${c.age ? ` <span class="u-age muted">${esc(c.age)}</span>` : ''}</span>`,
+        )
+        .join('')}
       <span class="u-caret" aria-hidden="true">${state.usageOpen ? '▴' : '▾'}</span>
     </button>
     ${state.usageOpen ? panelHtml(rows, now) : ''}`
