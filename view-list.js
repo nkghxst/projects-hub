@@ -1,6 +1,6 @@
 // The home, decision first: what waits on the owner, then next actions, pinned projects, and every project grouped
 // by where it stands. The freshness counts, the 14-day chart and live work fold into an Activity area at the bottom.
-import { activityChart, ageLabel, dayKeyOf, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
+import { activityChart, ageLabel, dayKeyOf, staleCheckpoint, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
                                                                   
 import { escapeHtml as esc, inline } from './markdown.js'
 import { chips, dot, linkResolver, liveBox, machineName, notesFor, projectName, providerTag, queuedFor } from './parts.js'
@@ -69,6 +69,14 @@ function decisions(all           , now        )         {
         .join('')}
       ${help}
     </details>`
+}
+
+// "Update missing": a neutral cue on an Active project whose newest recorded checkpoint (either machine's) is old.
+function staleChip(p         , pair                     , now        )         {
+  const age = staleCheckpoint(p, pair, now, state.staleDays)
+  if (age === null) return ''
+  const copy = state.isOffline ? ' in this saved copy' : ''
+  return `<span class="chip stale" title="A cue to look, not a deadline: the newest checkpoint of this Active project, on either machine, is ${age} days old${copy}. Change or turn off in Settings.">Latest recorded checkpoint is ${age} days old${copy}</span>`
 }
 
 // A way into the catch-up page when anything changed since this device last looked.
@@ -193,6 +201,7 @@ export function renderList(data      , width        )         {
             <span class="chip">${dot(p.machine)} ${machineName(p.machine)}</span>
             ${providerTag(p)}
             ${changeChip(p, pair)}
+            ${staleChip(p, pair, now)}
             ${pair ? `<span class="chip" title="Also has a record on the other machine">⇄ also ${machineName(pair.machine)}${pair.checkedMs !== null ? ` · ${esc(ageLabel(pair.checkedMs, now, false))}` : ''}</span>` : ''}
             ${behind && behind.latestMs !== null ? `<span class="chip">${dot('good', '⚡')} active ${esc(ageLabel(behind.latestMs, now, true))} ago · notes behind</span>` : ''}
             ${noteCount > 0 ? `<span class="chip">✎ ${noteCount} note${noteCount === 1 ? '' : 's'}</span>` : ''}

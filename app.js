@@ -7,6 +7,7 @@ import { fmtStamp, pad } from './core.js'
 import { escapeHtml as esc, glossaryEntries, setGlossary } from './markdown.js'
 import {
   clearDraft,
+  setStaleDays,
   closePickUp,
   copyPickUp,
   openPickUp,
@@ -405,6 +406,7 @@ document.addEventListener('change', event => {
   const el = event.target               
   if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
   else if (el.id === 'draft-project') state.draft.project = (el                     ).value
+  else if (el.id === 'set-stale') setStaleDays((el                    ).value)
 })
 
 document.addEventListener('keydown', event => {

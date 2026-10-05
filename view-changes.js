@@ -1,7 +1,7 @@
 // The catch-up page: every record this device hasn't seen in its current form, pinned projects first, then the newest
 // edits. Each says how many parts changed, were added or went; "Show what changed" fetches its recent saved versions,
 // finds the one this device last saw, and shows the changed lines and any wait on the owner that appeared or cleared.
-import { ageLabel, baseTitle, fmtStamp } from './core.js'
+import { ageLabel, fmtStamp, retitleKey } from './core.js'
                                                   
 import { escapeHtml as esc } from './markdown.js'
 import { dot, machineName } from './parts.js'
@@ -24,7 +24,7 @@ function counts(p         )         {
   const gone = [...removed]
   let retitled = 0
   for (const k of added) {
-    const at = gone.findIndex(g => baseTitle(g) === baseTitle(k))
+    const at = gone.findIndex(g => retitleKey(g) === retitleKey(k))
     if (at !== -1) {
       gone.splice(at, 1)
       retitled++
@@ -66,9 +66,14 @@ function linesHtml(lines            )         {
   return html
 }
 
-function detailHtml(file        )         {
+function detailHtml(file        , p         )         {
   const d = state.changes[file]
   if (!d) return ''
+  // The record moved on after this comparison was made: say so, and keep the newer change unread.
+  const isStale = d.status === 'done' && d.targetPrints !== undefined && JSON.stringify(d.targetPrints) !== JSON.stringify(p.prints)
+  const stale = isStale
+    ? '<p class="warning-text small">The record changed again since this comparison. Show it again to include the newer change; Mark as seen marks only what is shown here.</p>'
+    : ''
   if (d.status === 'loading') return '<p class="muted small" role="status">Fetching the saved versions…</p>'
   if (d.status === 'error') return `<p class="error" role="alert">${esc(d.error ?? "Couldn't fetch the saved versions")}</p>`
   if (!d.result || !d.base) {
@@ -78,7 +83,7 @@ function detailHtml(file        )         {
   const base = d.base
   const which = d.isExact
     ? ', the one this device last saw'
-    : ', the closest saved version to what this device last saw (it saw a state that was never saved on its own)'
+    : `, the closest of the last ${12} saved versions to what this device last saw (none of them matched it exactly)`
   const waits = [
     d.result.waitsAdded.length > 0 ? `<p class="change-waits"><strong>Now waiting on you:</strong> ${d.result.waitsAdded.map(esc).join('; ')}</p>` : '',
     d.result.waitsCleared.length > 0 ? `<p class="change-waits muted"><strong>No longer listed as waiting on you:</strong> ${d.result.waitsCleared.map(esc).join('; ')}</p>` : '',
@@ -91,6 +96,7 @@ function detailHtml(file        )         {
     .join('')
   return `
     <div class="change-detail">
+      ${stale}
       <p class="muted small">Compared with the version saved ${esc(fmtStamp(base.atMs, now))} on ${esc(base.by)}${which}.</p>
       ${waits}
       ${sections || '<p class="muted small">No differences in the text.</p>'}
@@ -124,7 +130,7 @@ export function renderChanges()         {
             <a class="button" href="${recordHref(p.file)}">Open</a>
             <button type="button" data-action="changes-seen" data-value="${esc(p.file)}">Mark as seen</button>
           </div>
-          ${isOpen ? detailHtml(p.file) : ''}
+          ${isOpen ? detailHtml(p.file, p) : ''}
         </section>`
       })
       .join('')}`

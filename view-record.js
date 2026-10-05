@@ -1,7 +1,7 @@
 // One record, opening on its current brief (State, Needs you, Next, Read first, each saying where it came from), then
 // live work, actions and phone notes, then the full current checkpoint and the record's other sections, folded, in the
 // readable or as-written layout, with summaries where the desktop can write them, and its recent edit history.
-import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
+import { ageLabel, boldVerdicts, currentSectionIndex, sectionKeys, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
                                                                      
 import { escapeHtml as esc, inline, renderMarkdown, termsOnce } from './markdown.js'
                                                  
@@ -10,7 +10,7 @@ import { captureHref, recordHref } from './routes.js'
                                                                 
 import { isPinned, state } from './state.js'
 import { renderSharePanel } from './view-share.js'
-import { currentPickUp } from './actions.js'
+import { currentPickUp, pickUpContext } from './actions.js'
 
 function rowHtml(r     , resolve              )         {
   if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
@@ -98,7 +98,7 @@ function mentionsHtml(path        )         {
     <section class="mentions"><div class="label">Mentioned elsewhere${m.list.length > 0 ? ` (${m.list.length})` : ''}</div>
       ${
         m.list.length === 0
-          ? '<p class="muted small">Not linked to or named in other records or notes.</p>'
+          ? '<p class="muted small">No matches for its names or links in other records or notes.</p>'
           : m.list
               .map(
                 x => `<a class="hit" href="${x.isNote ? '#/inbox' : recordHref(x.path, x.section >= 0 ? x.section : undefined)}">
@@ -112,14 +112,26 @@ function mentionsHtml(path        )         {
 }
 
 // Pick up: the prompt for an agent session on the machine that owns the project, and where to paste it.
-function pickUpPanel(machine         , name        )         {
+function pickUpPanel(machine         , name        , pairFile        )         {
   const text = currentPickUp() ?? ''
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator
+  const { ownerElsewhere, folder } = pickUpContext()
+  const elsewhere = ownerElsewhere
+    ? `<p class="warning-text">This ${machine} record says the work is owned by the ${ownerElsewhere}.${
+        pairFile ? ` <a href="${recordHref(pairFile)}">Open the ${ownerElsewhere}'s record</a> to pick it up there.` : ''
+      }</p>`
+    : ''
+  const folderLine = folder
+    ? `<p class="small">Folder on the ${machine}: <code>${esc(folder)}</code> <button type="button" class="link" data-action="copy" data-text="${esc(folder)}">Copy folder</button></p>`
+    : ''
   return `
     <div class="share-panel card pickup" role="region" aria-label="Pick up">
       <div class="share-head"><strong>Pick up ${esc(name)}</strong> <span class="muted small">for an agent on the ${machine}</span>
         <button type="button" class="link muted" data-action="pickup-close" aria-label="Close the Pick up panel">✕</button></div>
-      <p class="muted small">Paste it into a Claude Code session on the ${machine} (Claude app → Code tab → the ${machine}'s card → the project's folder, with <code>claude remote-control</code> running there) or into Codex (ChatGPT → Codex → the ${machine}). The agent reads the record and code itself and waits for your go. For an app without your files, use ↗ Share on the current section instead.</p>
+      ${elsewhere}
+      <p class="muted small">Paste it into a Claude Code or Codex session on the ${machine}; the agent reads the record and code itself and waits for your go.</p>
+      ${folderLine}
+      <details class="small"><summary class="muted">How to open one there</summary><p class="muted">Claude app → Code tab → the ${machine}'s card → the project's folder (with <code>claude remote-control</code> running on the ${machine}), or ChatGPT → Codex → the ${machine}. For an app without your files, use ↗ Share on the current section instead.</p></details>
       <pre id="pickup-text" class="share-text" tabindex="0">${esc(text)}</pre>
       <div class="actions">
         <button type="button" class="primary" data-action="pickup-copy">Copy</button>
@@ -161,7 +173,7 @@ function drawSection(s             , i        , isCurrent         , resolve     
           ${md(summary.text)}
         </div>`
       : `<button class="link muted small summary-note" data-action="section" data-value="${i}" aria-controls="${bodyId}">✦ Summary available</button>`
-  const isChanged = state.recordChanged.has(s.title.trim().toLowerCase())
+  const isChanged = state.recordChanged.has(sectionKeys(state.record?.sections ?? [])[i] ?? s.title.trim().toLowerCase())
   return `
     <section class="card section${isCurrent ? ' current' : ''}${isChanged ? ' changed' : ''}">
       <div class="section-bar">
@@ -226,7 +238,7 @@ export function renderRecord(doc            , data             )         {
       ${p && p.pairFile && other ? `<a class="button" href="${recordHref(p.pairFile)}">${machineName(other)} record →</a>` : ''}
       ${p ? `<button data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-pressed="${isPinned(p)}">${isPinned(p) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}
     </div>
-    ${p && state.pickUp ? pickUpPanel(p.machine, p.name) : ''}
+    ${p && state.pickUp ? pickUpPanel(p.machine, p.name, p.pairFile) : ''}
     ${
       recordNotes.length + recordQueue.length > 0
         ? `<section class="notes"><div class="label">Notes (${recordNotes.length + recordQueue.length})</div>

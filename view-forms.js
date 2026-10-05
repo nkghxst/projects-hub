@@ -115,8 +115,9 @@ export function renderCapture()         {
       <label><span>${d.kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span></span><textarea id="draft-body" rows="5">${esc(d.body)}</textarea></label>
       <label><span>Link <span class="muted">(optional)</span></span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
       <label><span>Title <span class="muted">(optional)</span></span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
+      ${state.data?.canWrite === false ? `<p class="error" role="alert">This computer can't save notes here. ${esc(state.data.writeRefusal ?? '')}</p>` : ''}
       <div class="actions sticky">
-        <button class="primary" type="submit">Save</button>
+        <button class="primary" type="submit"${state.data?.canWrite === false ? ' disabled' : ''}>Save</button>
         <button type="button" data-action="clear-draft">Clear</button>
       </div>
       <p class="muted small">${
@@ -127,9 +128,19 @@ export function renderCapture()         {
     </form>`
 }
 
+// Settings for how this device shows things (both apps).
+function displaySettings()         {
+  return `
+    <section class="card form">
+      <h3 class="home-h">On this device</h3>
+      <label><span>Flag an Active project when its newest checkpoint is at least this many days old (0 for never)</span>
+        <input id="set-stale" type="number" min="0" max="365" inputmode="numeric" value="${state.staleDays}"></label>
+    </section>`
+}
+
 export function renderSettings()         {
   if (state.mode === 'local') {
-    return `<h2 class="title">Settings</h2><p>The desktop app reads your local claude-profile clone and needs no settings.</p><p><a href="#/">← All projects</a></p>`
+    return `<h2 class="title">Settings</h2><p>The desktop app reads your local claude-profile clone and needs no connection settings.</p>${displaySettings()}<p><a href="#/">← All projects</a></p>`
   }
   // What's being typed survives redraws; it only replaces the saved settings on Save.
   const d = state.settingsDraft

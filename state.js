@@ -1,6 +1,6 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
-import { noteId, stableId } from './core.js'
+import { noteId, stableId, STALE_DAYS_DEFAULT } from './core.js'
                                                                                                                                                   
 import { defaultRepo } from './source.js'
                                                                            
@@ -9,6 +9,10 @@ import { defaultRepo } from './source.js'
 // The catch-up page's comparison for one record: shown or not, and what the saved versions gave.
                             
                  
+                                                                                                                     
+                        
+                 
+                                       
                                       
                         
                 
@@ -143,6 +147,11 @@ export const state = {
   pins: new Set(readJson          ('hub.pins', [])),
   // Which folding areas (Activity, Done) are open, kept across redraws.
   openDetails: new Set        (),
+  // "Update missing": flag Active projects whose newest checkpoint is at least this many days old (0: never).
+  staleDays: (() => {
+    const saved = Number(localStorage.getItem('hub.staleDays'))
+    return localStorage.getItem('hub.staleDays') !== null && Number.isFinite(saved) ? saved : STALE_DAYS_DEFAULT
+  })(),
   // Home sections folded on this device (Needs you, Next actions), kept across reloads.
   folded: new Set(readJson          ('hub.folded', [])),
   nextMore: false,
@@ -151,7 +160,7 @@ export const state = {
   // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
   share: null                                                                                                                         ,
   // Where else the open record is mentioned.
-  mentions: null                                                                                  ,
+  mentions: null                                                                                                   ,
   // The open record's Pick up panel.
   pickUp: false,
   // The catch-up page's comparisons, by record file.

@@ -129,7 +129,7 @@ export function noteCard(n               , isQueued         , hold              
   // A sent note says where it was captured, whether it's been handled (when, and on which device), and can be marked
   // handled or reopened; the note itself never changes, the mark is a separate file.
   const sent = isQueued ? null : (n        )
-  const canMark = Boolean(sent && state.source?.mark)
+  const canMark = Boolean(sent && state.source?.mark && state.data?.canWrite !== false)
   const lifecycle = sent
     ? `<div class="actions small">
         <span class="muted">from ${esc(noteOrigin(sent.path))}${sent.handledAtMs ? ` · handled ${esc(fmtStamp(sent.handledAtMs, Date.now()))} on ${esc(sent.handledBy ?? '')}` : ''}</span>

@@ -11,8 +11,8 @@ import { state } from './state.js'
 const isNote = (path        ) => /\/(notes|ideas)\//.test(path)
 const sourceHref = (s                              ) => (isNote(s.path) ? '#/inbox' : recordHref(s.path, s.section >= 0 ? s.section : undefined))
 
-// [1], [1, 2] and [1][3] in the answer's text (never in code) become links to their sections; a number that wasn't
-// one of the sources is marked.
+// [S1], [S1, S2] and [S1][S3] in the answer's text (never in code) become links to their sections; a number that
+// wasn't one of the sources is marked. A plain bracketed number ("item [2]") is left as written.
 function withCitations(html        , answer           )         {
   const byNumber = new Map(answer.sources.map(s => [s.n, s]))
   let inCode = 0
@@ -25,13 +25,13 @@ function withCitations(html        , answer           )         {
         return part
       }
       if (inCode > 0) return part
-      return part.replace(/\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]/g, (_m        , list        ) => {
+      return part.replace(/\[(S\d{1,3}(?:\s*,\s*S\d{1,3})*)\]/g, (_m        , list        ) => {
         const links = list.split(',').map(x => {
-          const n = Number(x.trim())
+          const n = Number(x.trim().slice(1))
           const s = byNumber.get(n)
           return s
-            ? `<a class="cite" href="${esc(sourceHref(s))}" title="${esc(`${s.project} — ${s.title}`)}">${n}</a>`
-            : `<span class="cite bad" title="Not one of the sources sent">${n}?</span>`
+            ? `<a class="cite" href="${esc(sourceHref(s))}" title="${esc(`${s.project} — ${s.title}`)}">S${n}</a>`
+            : `<span class="cite bad" title="Not one of the sources sent">S${n}?</span>`
         })
         return `[${links.join(', ')}]`
       })
@@ -62,7 +62,7 @@ function answerHtml(a           )         {
       ${a.kind === 'experiment' ? `<p class="muted small">The suggested experiment is Claude's idea, not something your records say.</p>` : ''}
       ${
         a.unknown.length > 0
-          ? `<p class="warn">It cites ${a.unknown.map(n => `[${n}]`).join(', ')}, which isn't one of the sources sent: treat that part with care.</p>`
+          ? `<p class="warn">It cites ${a.unknown.map(n => `[S${n}]`).join(', ')}, which isn't one of the sources sent: treat that part with care.</p>`
           : ''
       }
       <div class="md">${withCitations(renderMarkdown(a.text, () => null), a)}</div>

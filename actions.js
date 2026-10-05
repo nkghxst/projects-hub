@@ -1,7 +1,7 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
-                                                                                                  
+import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, declaredOwner, folderOf, sectionKeys, sectionPrints, STALE_DAYS_DEFAULT, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+                                                                                                           
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
@@ -81,7 +81,7 @@ export async function loadRecord(path        ) {
     state.recordDest = dest
     state.recordError = ''
     noteRecordSeen()
-    if (!isSameRecord) void loadMentions(path)
+    void loadMentions(path, isSameRecord)
     if (isSameRecord) {
       state.open = new Set([...state.open].filter(k => Number(k) < record.sections.length))
     } else {
@@ -115,6 +115,7 @@ function replaceSource(next               ) {
   state.share = null
   state.term = null
   state.changes = {}
+  state.mentions = null
   state.data = null
   state.notes = []
   state.record = null
@@ -485,20 +486,26 @@ export async function copyShare(prompt = currentShare()) {
 
 // ---------- mentioned elsewhere ----------
 
-// Where else the open record comes up, fetched once per opening; a reply for another record or source is dropped.
-export async function loadMentions(path        ) {
+// Where else the open record comes up. Each load is numbered and only the latest counts, so an older reply for the
+// same record can't replace a newer one (Codex M6 review). A quiet reload (a refresh of the same record) keeps the
+// current list on screen until the new one arrives.
+let mentionsRequest = 0
+export async function loadMentions(path        , isQuiet = false) {
   const source = state.source
   if (!source?.mentions) return
+  const request = ++mentionsRequest
   const generation = state.sourceGeneration
-  state.mentions = { path, status: 'loading', list: [] }
+  if (isQuiet && state.mentions?.path === path) state.mentions.request = request
+  else state.mentions = { path, status: 'loading', list: [], request }
   changed()
+  const isCurrent = () => generation === state.sourceGeneration && state.mentions?.request === request
   try {
     const list = await source.mentions(path)
-    if (generation !== state.sourceGeneration || state.mentions?.path !== path) return
-    state.mentions = { path, status: 'done', list }
+    if (!isCurrent()) return
+    state.mentions = { path, status: 'done', list, request }
   } catch {
-    if (generation !== state.sourceGeneration || state.mentions?.path !== path) return
-    state.mentions = { path, status: 'error', list: [] }
+    if (!isCurrent()) return
+    state.mentions = { path, status: 'error', list: [], request }
   }
   changed()
 }
@@ -511,10 +518,16 @@ export function currentPickUp()                {
   const doc = state.record
   const p = doc ? state.data?.projects.find(x => x.file === doc.path) : undefined
   if (!doc || !p) return null
+  // Sections by the keys the change marks use, so a repeated heading ("Same (2)") is told apart (Codex M6 review).
+  const keys = sectionKeys(doc.sections)
   const changedTitles = [
     ...(state.recordChanged.has('#top') ? ['the top of the record'] : []),
-    ...doc.sections.filter(s => state.recordChanged.has(s.title.trim().toLowerCase())).map(s => s.title.trim()),
+    ...doc.sections
+      .map((s, i) => ({ title: s.title.trim(), key: keys[i] }))
+      .filter(x => state.recordChanged.has(x.key))
+      .map(x => `${x.title}${x.key.slice(x.title.length)}`),
   ]
+  const removedTitles = state.recordRemoved.map(k => (k === '#top' ? 'the top of the record' : k))
   const behind = notesBehind(p, state.data?.live ?? [])
   const root = state.data?.desktop?.worktreeRoot ?? ''
   return pickUpPrompt({
@@ -525,11 +538,36 @@ export function currentPickUp()                {
     brief: shareBriefOf(p),
     repos: p.repos ?? [],
     changed: changedTitles,
+    removed: removedTitles,
     notes: openNotes()
       .filter(n => n.project === doc.path)
       .map(n => ({ title: n.title, path: n.path })),
     ...(behind && root ? { live: { logPath: behind.logPath, worktreeRoot: root } } : {}),
+    ...pickUpContext(),
   })
+}
+
+// What the open record says about where the work lives: another machine named as its owner, and its folder.
+export function pickUpContext()                                                {
+  const doc = state.record
+  const p = doc ? state.data?.projects.find(x => x.file === doc.path) : undefined
+  if (!doc || !p) return {}
+  const current = doc.sections[currentSectionIndex(doc.sections.map(s => s.title))]
+  const owner = declaredOwner(`${p.state}\n${doc.preamble}\n${current?.body ?? ''}`)
+  const folder = folderOf(`${doc.preamble}\n${doc.sections.map(s => s.body).join('\n')}`)
+  return { ...(owner && owner !== p.machine ? { ownerElsewhere: owner } : {}), ...(folder ? { folder } : {}) }
+}
+
+// The "update missing" threshold for this device (Settings); 0 turns it off.
+export function setStaleDays(value        ) {
+  const days = Math.max(0, Math.min(365, Math.round(Number(value))))
+  state.staleDays = Number.isFinite(days) ? days : STALE_DAYS_DEFAULT
+  try {
+    localStorage.setItem('hub.staleDays', String(state.staleDays))
+  } catch {
+    // Storage full: the setting lasts for this visit.
+  }
+  changed()
 }
 export function openPickUp() {
   state.pickUp = true
@@ -567,6 +605,9 @@ export async function sharePickUp() {
 
 // Fetches the record's recent saved versions, finds the one this device last saw, and works out what changed since.
 // A second call hides it again.
+// Each load is numbered: a reply counts only while its load is the open one for that record, on the same connection, so
+// an older reply, or one for a hidden or acknowledged comparison, is dropped (Codex M6 review).
+let changeRequest = 0
 export async function showChanges(file        ) {
   const open = state.changes[file]
   if (open?.isOpen) {
@@ -576,28 +617,37 @@ export async function showChanges(file        ) {
   const source = state.source
   const p = state.data?.projects.find(x => x.file === file)
   if (!source?.versions || !p) return
-  state.changes[file] = { isOpen: true, status: 'loading' }
+  const request = ++changeRequest
+  state.changes[file] = { isOpen: true, status: 'loading', request }
   changed()
   const generation = state.sourceGeneration
+  const isCurrent = () => generation === state.sourceGeneration && state.changes[file]?.request === request && state.changes[file]?.isOpen === true
   try {
-    const { current, versions } = await source.versions(file)
-    if (generation !== state.sourceGeneration || !state.changes[file]?.isOpen) return
+    const reply = await source.versions(file)
+    if (!isCurrent()) return
+    if ('error' in reply && typeof reply.error === 'string') throw new Error(reply.error)
+    const { current, versions } = reply
     const { index, isExact } = seenVersion(versions, seenPrints(file) ?? {})
     const base = versions[index]
+    const target = current ?? versions[0]?.text ?? ''
+    const targetPrints = sectionPrints(target)
     state.changes[file] = base
-      ? { isOpen: true, status: 'done', base, isExact, result: recordChanges(base.text, current ?? versions[0].text, state.data?.owner ?? '') }
-      : { isOpen: true, status: 'done' }
+      ? { isOpen: true, status: 'done', request, base, isExact, targetPrints, result: recordChanges(base.text, target, state.data?.owner ?? '') }
+      : { isOpen: true, status: 'done', request, targetPrints }
   } catch (error) {
-    if (generation !== state.sourceGeneration) return
-    state.changes[file] = { isOpen: true, status: 'error', error: `Couldn't fetch the saved versions: ${errorText(error)}` }
+    if (!isCurrent()) return
+    state.changes[file] = { isOpen: true, status: 'error', request, error: `Couldn't fetch the saved versions: ${errorText(error)}` }
   }
   changed()
 }
 
-// Counts the record's current version as seen on this device, as opening it does.
+// Counts as seen the version that was compared, when one was shown, so a newer change stays unread; otherwise the
+// record's current version, as opening it does.
 export function markChangeSeen(file        ) {
   const p = state.data?.projects.find(x => x.file === file)
-  if (p) markSeen(file, p.prints)
+  const compared = state.changes[file]
+  const prints = compared?.status === 'done' && compared.targetPrints ? compared.targetPrints : p?.prints
+  if (prints) markSeen(file, prints)
   delete state.changes[file]
   changed()
 }

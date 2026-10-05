@@ -392,3 +392,4 @@ details.fold > summary::before { content: "▸"; color: var(--muted); font-size:
 details.fold[open] > summary::before { transform: rotate(90deg); }
 details.fold > summary h2 { margin: 0; }
 details.fold:not([open]) { padding-bottom: 10px; }
+.chip.stale { color: var(--muted); border-style: dashed; }
