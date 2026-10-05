@@ -381,6 +381,18 @@ document.addEventListener(
   'toggle',
   event => {
     const el = event.target                      
+    // Sections that start open (Needs you, Next actions): a fold is remembered on this device.
+    const fold = el.dataset?.fold
+    if (fold) {
+      if (el.open) state.folded.delete(fold)
+      else state.folded.add(fold)
+      try {
+        localStorage.setItem('hub.folded', JSON.stringify([...state.folded]))
+      } catch {
+        // Storage full: the fold just isn't remembered.
+      }
+      return
+    }
     const key = el.dataset?.key
     if (!key) return
     if (el.open) state.openDetails.add(key)

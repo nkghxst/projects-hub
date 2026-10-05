@@ -143,6 +143,8 @@ export const state = {
   pins: new Set(readJson          ('hub.pins', [])),
   // Which folding areas (Activity, Done) are open, kept across redraws.
   openDetails: new Set        (),
+  // Home sections folded on this device (Needs you, Next actions), kept across reloads.
+  folded: new Set(readJson          ('hub.folded', [])),
   nextMore: false,
   // The usage panel under the top bar.
   usageOpen: false,

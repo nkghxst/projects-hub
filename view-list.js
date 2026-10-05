@@ -45,13 +45,14 @@ function decisions(all           , now        )         {
     "Waiting on …" come first. Others are matched by wording such as "waits for your decision" or "needs your approval",
     marked "possible", and can miss some. Only current checkpoints, Next lines and index rows are read.</p></details>`
   if (waiting.length === 0) {
-    return `<section class="card decisions"><h2 class="home-h">Needs you</h2>
-      <p>Nothing found waiting on you in the current checkpoints.</p>${help}</section>`
+    return `<details class="card fold decisions" data-fold="needs-you"${foldOpen('needs-you')}>
+      <summary><h2 class="home-h">Needs you</h2></summary>
+      <p>Nothing found waiting on you in the current checkpoints.</p>${help}</details>`
   }
   const count = waiting.reduce((n, p) => n + p.waits.length, 0)
   return `
-    <section class="card decisions accent">
-      <h2 class="home-h">Needs you <span class="muted">(${count})</span></h2>
+    <details class="card fold decisions accent" data-fold="needs-you"${foldOpen('needs-you')}>
+      <summary><h2 class="home-h">Needs you <span class="muted">(${count})</span></h2></summary>
       ${waiting
         .map(
           p => `<div class="decision">
@@ -67,7 +68,7 @@ function decisions(all           , now        )         {
         )
         .join('')}
       ${help}
-    </section>`
+    </details>`
 }
 
 // A way into the catch-up page when anything changed since this device last looked.
@@ -81,8 +82,8 @@ function nextActions(list           , now        )         {
   if (withNext.length === 0) return ''
   const shown = state.nextMore ? withNext : withNext.slice(0, NEXT_SHOWN)
   return `
-    <section class="card next-actions">
-      <h2 class="home-h">Next actions</h2>
+    <details class="card fold next-actions" data-fold="next-actions"${foldOpen('next-actions')}>
+      <summary><h2 class="home-h">Next actions <span class="muted">(${withNext.length})</span></h2></summary>
       <ul class="next-list">
         ${shown
           .map(
@@ -94,8 +95,11 @@ function nextActions(list           , now        )         {
           .join('')}
       </ul>
       ${withNext.length > NEXT_SHOWN ? `<button class="link" data-action="next-more">${state.nextMore ? 'Fewer' : `All ${withNext.length} next actions`}</button>` : ''}
-    </section>`
+    </details>`
 }
+
+// Home sections that start open and fold on click; a fold is remembered on this device (state.folded).
+const foldOpen = (key        ) => (state.folded.has(key) ? '' : ' open')
 
 // Changed since this device last opened the record (or its other machine's record), or added since.
 function changeChip(p         , pair                     )         {

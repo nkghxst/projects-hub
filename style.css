@@ -384,3 +384,11 @@ a.cite:hover { text-decoration: underline; }
 .mentions .hit { margin-top: 6px; }
 .ask-starters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
 .chip-button { border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+
+/* Home sections that fold on click (Needs you, Next actions): the heading is the control. */
+details.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▸"; color: var(--muted); font-size: 13px; transition: transform 0.15s; }
+details.fold[open] > summary::before { transform: rotate(90deg); }
+details.fold > summary h2 { margin: 0; }
+details.fold:not([open]) { padding-bottom: 10px; }
