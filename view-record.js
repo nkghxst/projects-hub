@@ -183,6 +183,7 @@ export function renderRecord(doc            , data             )         {
       ${canCapture && p ? `<a class="button primary" href="${captureHref(doc.path)}">✎ Add note</a>` : ''}
       ${p && desktop ? `<button class="${canCapture ? '' : 'primary'}" data-action="copy" data-text="${esc(briefPrompt(p, behind, desktop.worktreeRoot))}" title="Paste into Claude">Copy “brief me” prompt</button>` : ''}
       ${p && behind && desktop ? `<button data-action="copy" data-text="${esc(catchUpPrompt(p, behind, desktop.worktreeRoot))}">Copy catch-up prompt</button>` : ''}
+      ${state.source?.ask ? '<button data-action="ask-record" title="Ask Claude on this desktop, citing this record\'s sections">✦ Ask about this record</button>' : ''}
       ${desktop ? `<button data-action="copy" data-text="${esc(`${desktop.repoWindows}\\${doc.path.split('/').join('\\')}`)}">Copy path</button>` : ''}
       ${p && p.pairFile && other ? `<a class="button" href="${recordHref(p.pairFile)}">${machineName(other)} record →</a>` : ''}
       ${p ? `<button data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-pressed="${isPinned(p)}">${isPinned(p) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}

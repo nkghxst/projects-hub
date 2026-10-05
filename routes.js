@@ -6,6 +6,8 @@
                      
                                         
                         
+                                                                  
+                   
 
 export function currentRoute()        {
   const hash = location.hash
@@ -17,6 +19,7 @@ export function currentRoute()        {
   if (hash === '#/inbox') return { name: 'inbox' }
   if (hash.startsWith('#/capture')) return { name: 'capture', project: decodeURIComponent(hash.slice(10)) }
   if (hash === '#/settings') return { name: 'settings' }
+  if (hash === '#/ask') return { name: 'ask' }
   return { name: 'list' }
 }
 

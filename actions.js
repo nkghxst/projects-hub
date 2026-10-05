@@ -1,7 +1,7 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
-                                                                              
+import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+                                                                                                  
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
@@ -24,7 +24,7 @@ import {
   toast,
   UNKNOWN_DEST,
 } from './state.js'
-                                                 
+                                                           
 
 export async function loadAll() {
   const source = state.source
@@ -445,6 +445,101 @@ export async function copyShare() {
   try {
     await navigator.clipboard.writeText(prompt.text)
     toast('Copied: paste it into Claude')
+  } catch {
+    toast("Couldn't copy here")
+  }
+}
+
+// ---------- the assistant (desktop) ----------
+
+const labelOf = (path        ) => state.data?.projects.find(p => p.file === path)?.name ?? path.split('/').pop()?.replace(/\.md$/, '') ?? path
+
+function openAsk(kind         , from        , picks                   ) {
+  state.ask = { kind, from, question: '', picks, status: 'idle', answer: null, error: '' }
+  location.hash = '#/ask'
+  changed()
+}
+
+// The search results shown (they follow the machine filter); the first ones that fit are ticked.
+export function askFromSearch() {
+  const machine = state.filters.machine
+  const hits = (state.searchHits ?? []).filter(h => machine === 'all' || h.path.startsWith(`memory/${machine}/`))
+  if (hits.length === 0) return
+  openAsk(
+    'answer',
+    `Search results for “${state.searchFor}”`,
+    hits.map((h, i) => ({ pick: { path: h.path, section: h.section, title: h.sectionTitle }, label: `${labelOf(h.path)} — ${h.sectionTitle}`, isOn: i < ASK_MAX_SOURCES })),
+  )
+}
+
+// The open record: the text above its sections, its current section, then the rest in order (what fits is sent).
+export function askFromRecord() {
+  const doc = state.record
+  if (!doc) return
+  const current = currentSectionIndex(doc.sections.map(s => s.title))
+  const order = [current, ...doc.sections.map((_, i) => i).filter(i => i !== current)].filter(i => i >= 0 && i < doc.sections.length)
+  openAsk('answer', `The record ${labelOf(doc.path)}`, [
+    ...(doc.preamble.trim() ? [{ pick: { path: doc.path, section: -1, title: '' }, label: 'Top of the record', isOn: true }] : []),
+    ...order.map(i => ({ pick: { path: doc.path, section: i, title: doc.sections[i].title }, label: doc.sections[i].title, isOn: true })),
+  ])
+}
+
+// A note or idea, developed into a suggested first experiment (with its project's current section, when it has one).
+export function askFromNote(path        ) {
+  const note = state.notes.find(n => n.path === path)
+  if (!note) return
+  const project = note.project ? state.data?.projects.find(p => p.file === note.project) : undefined
+  openAsk('experiment', `${note.kind === 'idea' ? 'Idea' : 'Note'}: ${note.title}`, [
+    { pick: { path: note.path, section: -1, title: '' }, label: `${note.kind === 'idea' ? 'Idea' : 'Note'}: ${note.title}`, isOn: true },
+    ...(project?.currentTitle ? [{ pick: { path: project.file, section: 0, title: project.currentTitle }, label: `${project.name} — ${project.currentTitle}`, isOn: true }] : []),
+  ])
+}
+
+export function toggleAskPick(index        ) {
+  const pick = state.ask?.picks[index]
+  if (pick) pick.isOn = !pick.isOn
+  changed()
+}
+export function setAskKind(kind         ) {
+  if (state.ask) state.ask.kind = kind
+  changed()
+}
+
+// One answer at a time; one that arrives after the sources changed is dropped.
+let askRun = 0
+export async function runAsk() {
+  const ask = state.ask
+  const source = state.source
+  if (!ask || !source?.ask || ask.status === 'running') return
+  const sources = ask.picks.filter(p => p.isOn).map(p => p.pick)
+  ask.error = ask.kind === 'answer' && !ask.question.trim() ? 'Type a question first.' : sources.length === 0 ? 'Tick at least one source.' : ''
+  if (ask.error) return changed()
+  const run = ++askRun
+  ask.status = 'running'
+  ask.answer = null
+  changed()
+  let result           
+  try {
+    result = await source.ask({ kind: ask.kind, question: ask.question.trim(), sources })
+  } catch (error) {
+    result = { ok: false, error: errorText(error) }
+  }
+  if (state.ask !== ask || run !== askRun) return
+  ask.status = result.ok ? 'done' : 'error'
+  if (result.ok) ask.answer = result.answer
+  else ask.error = result.error
+  changed()
+}
+
+// The answer with its numbered sources and who wrote it, for pasting elsewhere.
+export async function copyAnswer() {
+  const a = state.ask?.answer
+  if (!a) return
+  const lines = a.sources.map(s => `[${s.n}] ${s.project} — ${s.title} (${s.path})`)
+  const text = `${a.question ? `Q: ${a.question}\n\n` : ''}${a.text}\n\nSources:\n${lines.join('\n')}\n\nWritten by ${a.model}, ${fmtStamp(a.atMs, Date.now())}, from my projects hub.`
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('Copied the answer and its sources')
   } catch {
     toast("Couldn't copy here")
   }

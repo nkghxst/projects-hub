@@ -28,7 +28,7 @@ import {
   searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                                                             
+                                                                                                                                                                    
 
                     
              
@@ -66,6 +66,9 @@ import {
                                                             
                                                                                                                     
                                                   
+                                                                                                                  
+                                                                                 
+                                                   
  
 
 // An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
@@ -120,6 +123,7 @@ export function localSource()         {
       if (!reply.ok) throw sourceError(reply.error === 'conflict' ? 'conflict' : 'other', reply.error === 'conflict' ? `A different file already exists at ${path}; this note was kept here.` : (reply.error ?? 'The hub refused the note'))
       return reply.result ?? 'created'
     },
+    ask: request => postHub           ('/api/ask', request),
     mark: async (note, handled) => {
       const reply = await postHub                                                ('/api/mark', { note, handled })
       if (!reply.ok || typeof reply.atMs !== 'number') throw sourceError('other', reply.error ?? 'The hub refused the mark')

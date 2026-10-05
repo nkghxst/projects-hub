@@ -138,7 +138,8 @@ function searchResults(query        , now        )         {
   const hits = all && machine !== 'all' ? all.filter(h => h.path.startsWith(`memory/${machine}/`)) : all
   return `
     <section class="card search-hits">
-      <h2 class="home-h">In record text ${hits ? `<span class="muted">${hits.length === 30 ? '30+' : hits.length}</span>` : ''}</h2>
+      <h2 class="home-h">In record text ${hits ? `<span class="muted">${hits.length === 30 ? '30+' : hits.length}</span>` : ''}
+        ${state.source?.ask && hits && hits.length > 0 ? '<button type="button" class="link ask-link" data-action="ask-search" title="Ask Claude on this desktop, citing these sections">✦ Ask about these</button>' : ''}</h2>
       ${hits === null ? '<p class="muted">Searching…</p>' : hits.length === 0 ? '<p class="muted">No sections contain all of those words.</p>' : hits.map(h => hitHtml(h, now)).join('')}
     </section>`
 }

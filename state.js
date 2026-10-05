@@ -1,11 +1,20 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
 import { noteId, stableId } from './core.js'
-                                                                                    
+                                                                                                                 
 import { defaultRepo } from './source.js'
                                                                            
 
                                                                              
+                        
+               
+              
+                  
+                                                          
+                                               
+                          
+               
+ 
                                        
                                                                                                     
 // A note saved on the phone and not yet on GitHub. Its ID and path are fixed when it's saved, so a retry can't
@@ -130,6 +139,9 @@ export const state = {
   usageOpen: false,
   // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
   share: null                                                                                                           ,
+  // The assistant (desktop): what it was opened from, the sources (each can be unticked), the question and the answer.
+  // Kept in memory only, so it survives moving between pages but never a reload.
+  ask: null                   ,
   // Matches in whole records for the home's filter text (null until a search has run for it).
   searchHits: null                      ,
   searchFor: '',

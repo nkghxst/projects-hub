@@ -332,3 +332,19 @@ abbr.term { text-decoration: underline dotted; text-underline-offset: 3px; curso
 abbr.term:focus-visible { outline-offset: 1px; }
 #toast { max-width: min(520px, calc(100vw - 32px)); }
 @media (max-width: 600px) { #toast { left: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); } }
+
+/* The assistant (desktop): tickable sources, citations that link to their sections, and a flag for a bad one. */
+.ask .segmented { margin-bottom: 4px; }
+.ask-sources { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; padding: 6px 10px 8px; max-height: 280px; overflow: auto; }
+.ask-sources legend { font-weight: 600; padding: 0 4px; }
+.ask-src { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; cursor: pointer; }
+.ask-answer { margin-top: 12px; }
+.ask-answer .md h3, .ask-answer .md h4 { margin: 12px 0 4px; }
+a.cite { font-variant-numeric: tabular-nums; font-weight: 600; text-decoration: none; padding: 0 1px; }
+a.cite:hover { text-decoration: underline; }
+.cite.bad { color: var(--danger); font-weight: 600; }
+.warn { color: var(--danger); border-left: 3px solid var(--danger); padding-left: 8px; }
+.ask-cited { margin: 4px 0 8px; padding-left: 28px; }
+.ask-cited li { margin: 2px 0; }
+.ask-sent summary { cursor: pointer; }
+.home-h .ask-link { font-size: 13px; font-weight: 600; margin-left: 8px; }

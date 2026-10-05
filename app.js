@@ -3,10 +3,17 @@
 // and capturing notes). Which one it is comes from whether the hub server answers.
 // This file draws the page and wires up events; views, state and actions live in their own modules.
 import { fmtStamp, pad } from './core.js'
-                                                          
+                                                                   
 import { escapeHtml as esc, glossaryTerm, setGlossary } from './markdown.js'
 import {
   clearDraft,
+  askFromNote,
+  askFromRecord,
+  askFromSearch,
+  copyAnswer,
+  runAsk,
+  setAskKind,
+  toggleAskPick,
   closeShare,
   connectGitHub,
   copyShare,
@@ -41,6 +48,7 @@ import { renderList } from './view-list.js'
 import { renderSetup } from './view-setup.js'
 import { renderUsageBar } from './view-usage.js'
 import { renderRecord } from './view-record.js'
+import { renderAsk } from './view-ask.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
 const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
@@ -121,6 +129,8 @@ function render() {
     html = renderInbox()
   } else if (r.name === 'capture') {
     html = renderCapture()
+  } else if (r.name === 'ask') {
+    html = renderAsk()
   } else if (r.name === 'record') {
     html = state.recordError
       ? `<p class="error">${esc(state.recordError)}</p><p><a href="#/">← All projects</a></p>`
@@ -185,6 +195,13 @@ document.addEventListener('click', async event => {
   else if (action === 'share-kind') setShareKind(value             )
   else if (action === 'share-send') await shareNow()
   else if (action === 'share-copy') await copyShare()
+  else if (action === 'ask-search') askFromSearch()
+  else if (action === 'ask-record') askFromRecord()
+  else if (action === 'ask-note') askFromNote(value)
+  else if (action === 'ask-pick') toggleAskPick(Number(value))
+  else if (action === 'ask-kind') setAskKind(value           )
+  else if (action === 'ask-run') await runAsk()
+  else if (action === 'ask-copy') await copyAnswer()
   else if (action === 'share-close') closeShare()
   else if (action === 'usage-toggle') {
     state.usageOpen = !state.usageOpen
@@ -279,6 +296,7 @@ document.addEventListener('input', event => {
   else if (el.id === 'set-repo') state.settingsDraft.repo = el.value
   else if (el.id === 'set-token') state.settingsDraft.token = el.value
   else if (el.id === 'set-api') state.settingsDraft.apiBase = el.value
+  else if (el.id === 'ask-question' && state.ask) state.ask.question = el.value
   else if (el.id === 'share-question' && state.share) {
     // The preview follows the question as it's typed, without redrawing the field.
     state.share.question = el.value
@@ -323,6 +341,11 @@ document.addEventListener('keydown', event => {
   const el = event.target               
   if (event.key === 'Enter' && el.classList?.contains('term')) {
     explainTerm(el)
+    return
+  }
+  if (event.key === 'Enter' && el.id === 'ask-question') {
+    event.preventDefault()
+    void runAsk()
     return
   }
   // Ctrl+K (⌘K on a Mac): search, from anywhere.
