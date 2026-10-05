@@ -148,6 +148,8 @@ export const state = {
   usageOpen: false,
   // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
   share: null                                                                                                                         ,
+  // The open record's Pick up panel.
+  pickUp: false,
   // The catch-up page's comparisons, by record file.
   changes: {}                                ,
   // The glossary term whose explanation is open (dismissed with its close button, Escape, or a page change).

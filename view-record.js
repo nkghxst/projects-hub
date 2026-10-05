@@ -10,6 +10,7 @@ import { captureHref, recordHref } from './routes.js'
                                                                 
 import { isPinned, state } from './state.js'
 import { renderSharePanel } from './view-share.js'
+import { currentPickUp } from './actions.js'
 
 function rowHtml(r     , resolve              )         {
   if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
@@ -77,17 +78,21 @@ function briefHtml(p         , resolve              )         {
     </section>`
 }
 
-function briefPrompt(p         , behind                  , worktreeRoot        )         {
-  const pair = p.pairFile ? ` and ~/claude-profile/${p.pairFile}` : ''
-  const local =
-    behind && worktreeRoot
-      ? ` Local work is newer than the notes: also read the latest entries of ${behind.logPath} and check the worktrees under ${worktreeRoot}.`
-      : ''
-  return (
-    `Brief me on ${p.name} from the shared profile. Read ~/claude-profile/${p.file}${pair}.${local} ` +
-    'Give me the current state, the next action, any blockers or holds, and anything that looks stale. ' +
-    "Read-only: don't edit files or resume any work."
-  )
+// Pick up: the prompt for an agent session on the machine that owns the project, and where to paste it.
+function pickUpPanel(machine         , name        )         {
+  const text = currentPickUp() ?? ''
+  const canShare = typeof navigator !== 'undefined' && 'share' in navigator
+  return `
+    <div class="share-panel card pickup" role="region" aria-label="Pick up">
+      <div class="share-head"><strong>Pick up ${esc(name)}</strong> <span class="muted small">for an agent on the ${machine}</span>
+        <button type="button" class="link muted" data-action="pickup-close" aria-label="Close the Pick up panel">✕</button></div>
+      <p class="muted small">Paste it into a Claude Code session on the ${machine} (Claude app → Code tab → the ${machine}'s card → the project's folder, with <code>claude remote-control</code> running there) or into Codex (ChatGPT → Codex → the ${machine}). The agent reads the record and code itself and waits for your go. For an app without your files, use ↗ Share on the current section instead.</p>
+      <pre id="pickup-text" class="share-text" tabindex="0">${esc(text)}</pre>
+      <div class="actions">
+        <button type="button" class="primary" data-action="pickup-copy">Copy</button>
+        ${canShare ? '<button type="button" data-action="pickup-share">Share…</button>' : ''}
+      </div>
+    </div>`
 }
 
 function catchUpPrompt(p         , source      , worktreeRoot        )         {
@@ -181,13 +186,14 @@ export function renderRecord(doc            , data             )         {
     ${source && (behind || doc.path === source.records[0]) ? liveBox(source, now, false) : ''}
     <div class="actions">
       ${canCapture && p ? `<a class="button primary" href="${captureHref(doc.path)}">✎ Add note</a>` : ''}
-      ${p && desktop ? `<button class="${canCapture ? '' : 'primary'}" data-action="copy" data-text="${esc(briefPrompt(p, behind, desktop.worktreeRoot))}" title="Paste into Claude">Copy “brief me” prompt</button>` : ''}
+      ${p ? `<button class="${canCapture ? '' : 'primary'}" data-action="pickup-open" aria-expanded="${state.pickUp}" title="A prompt for an agent on the ${p.machine}: read the record and its code, report, then propose">↻ Pick up</button>` : ''}
       ${p && behind && desktop ? `<button data-action="copy" data-text="${esc(catchUpPrompt(p, behind, desktop.worktreeRoot))}">Copy catch-up prompt</button>` : ''}
       ${state.source?.ask ? '<button data-action="ask-record" title="Ask Claude on this desktop, citing this record\'s sections">✦ Ask about this record</button>' : ''}
       ${desktop ? `<button data-action="copy" data-text="${esc(`${desktop.repoWindows}\\${doc.path.split('/').join('\\')}`)}">Copy path</button>` : ''}
       ${p && p.pairFile && other ? `<a class="button" href="${recordHref(p.pairFile)}">${machineName(other)} record →</a>` : ''}
       ${p ? `<button data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-pressed="${isPinned(p)}">${isPinned(p) ? '★ Pinned' : '☆ Pin to home'}</button>` : ''}
     </div>
+    ${p && state.pickUp ? pickUpPanel(p.machine, p.name) : ''}
     ${
       recordNotes.length + recordQueue.length > 0
         ? `<section class="notes"><div class="label">Notes (${recordNotes.length + recordQueue.length})</div>

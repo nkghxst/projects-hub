@@ -1488,6 +1488,56 @@ export function sharePrompt(input            , nowMs        )                   
   return { title: title.slice(0, 120), text: `${head}\n\n"""\n${quoted}\n"""\n`, isCut }
 }
 
+// ---------- picking a project up again (I2) ----------
+
+// A prompt for an agent session on the machine that owns the project (opened from the phone through Claude Code's
+// Remote Control or Codex Remote, or at the desk): a pointer to the record, its Read first and its code, with what the
+// hub shows now, rather than a paste of everything. The agent reads the files itself, reports, and proposes a next
+// step; nothing changes until the owner says go.
+                           
+              
+                  
+              
+                   
+                   
+                 
+                                                                                           
+                   
+                                          
+                                                              
+                                                  
+ 
+
+export function pickUpPrompt(i             )         {
+  const b = i.brief
+  const read = [
+    `1. Read its record, ~/claude-profile/${i.file}${i.pairFile ? ` (and the other machine's, ~/claude-profile/${i.pairFile}, if it helps)` : ''}` +
+      `${b.readFirst ? `, then what it says to read first: ${b.readFirst.replace(/[.\s]+$/, '')}` : ''}.`,
+    i.repos.length > 0
+      ? `2. Check the code: ${i.repos.join(', ')}. In the local checkout, look at the branch, uncommitted work and anything newer than the record.`
+      : '2. Check any code or files the record points to for work newer than the record.',
+    ...(i.live ? [`   Local work is newer than the notes: also read the latest entries of ${i.live.logPath} and check the worktrees under ${i.live.worktreeRoot}.`] : []),
+    "3. Tell me briefly where it stands, what's changed since the record's checkpoint, what's waiting on me, and the next step you'd propose.",
+  ]
+  const shows = [
+    `What my projects hub shows now${b.checkpoint ? ` (from "${b.checkpoint}")` : ''}:`,
+    `- State: ${b.state || 'not stated'}`,
+    `- Waiting on me: ${b.waiting.length > 0 ? b.waiting.join('; ') : 'nothing found'}`,
+    `- Next: ${b.next || 'not stated'}`,
+    ...(i.changed.length > 0 ? [`- Changed since I last looked: ${i.changed.join('; ')}`] : []),
+    ...(i.notes.length > 0 ? ['- Open notes about it:', ...i.notes.map(n => `  - "${n.title}" (~/claude-profile/${n.path})`)] : []),
+  ]
+  return [
+    `I'm picking up ${i.name} again. It's owned by the ${i.machine}, so this session should be running there.`,
+    "Catch up first, read-only: don't edit files, commit, or resume any work until I give my go.",
+    '',
+    ...read,
+    '',
+    ...shows,
+    '',
+  ].join('\n')
+}
+
 // The GitHub repositories a record mentions, as https://github.com/owner/repo, each once, in order of first mention.
 // GitHub's own pages (settings, orgs…) and the profile repository itself aren't projects' code, so they're left out.
 const GITHUB_PAGES = new Set(['settings', 'orgs', 'features', 'about', 'pricing', 'login', 'marketplace', 'apps', 'sponsors', 'topics', 'explore', 'notifications', 'issues', 'pulls', 'new', 'search', 'enterprise', 'collections', 'site', 'contact'])

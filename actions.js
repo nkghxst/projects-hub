@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -14,6 +14,7 @@ import {
   errorText,
   isConfigured,
   isQueued,
+  openNotes,
   newQueueId,
   putQueued,
   QUEUE_PREFIX,
@@ -256,6 +257,7 @@ export async function route() {
   const r = currentRoute()
   state.share = null
   state.term = null
+  state.pickUp = false
   if (r.name !== 'record' || r.path !== state.seenVisit) {
     state.seenVisit = ''
     state.seenVersion = ''
@@ -478,6 +480,66 @@ export async function copyShare(prompt = currentShare()) {
   } catch {
     toast("Couldn't copy here")
   }
+}
+
+// ---------- picking a project up again ----------
+
+// The pick-up prompt for the open record: what the hub shows, the sections changed since this device last looked
+// (the visit's change marks), open notes about it, and newer local work on the desktop.
+export function currentPickUp()                {
+  const doc = state.record
+  const p = doc ? state.data?.projects.find(x => x.file === doc.path) : undefined
+  if (!doc || !p) return null
+  const changedTitles = [
+    ...(state.recordChanged.has('#top') ? ['the top of the record'] : []),
+    ...doc.sections.filter(s => state.recordChanged.has(s.title.trim().toLowerCase())).map(s => s.title.trim()),
+  ]
+  const behind = notesBehind(p, state.data?.live ?? [])
+  const root = state.data?.desktop?.worktreeRoot ?? ''
+  return pickUpPrompt({
+    name: p.name,
+    machine: p.machine,
+    file: p.file,
+    ...(p.pairFile ? { pairFile: p.pairFile } : {}),
+    brief: shareBriefOf(p),
+    repos: p.repos ?? [],
+    changed: changedTitles,
+    notes: openNotes()
+      .filter(n => n.project === doc.path)
+      .map(n => ({ title: n.title, path: n.path })),
+    ...(behind && root ? { live: { logPath: behind.logPath, worktreeRoot: root } } : {}),
+  })
+}
+export function openPickUp() {
+  state.pickUp = true
+  changed()
+}
+export function closePickUp() {
+  state.pickUp = false
+  changed()
+}
+export async function copyPickUp(text = currentPickUp()) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('Copied: paste it into a session on the machine that owns the project')
+  } catch {
+    toast("Couldn't copy here")
+  }
+}
+export async function sharePickUp() {
+  const text = currentPickUp()
+  if (!text) return
+  const nav = navigator                                                                                      
+  if (typeof nav.share === 'function') {
+    try {
+      await nav.share({ title: 'Pick up', text })
+      return
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return
+    }
+  }
+  await copyPickUp(text)
 }
 
 // ---------- catch-up: what changed since this device last looked ----------

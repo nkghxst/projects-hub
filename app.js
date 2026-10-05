@@ -7,6 +7,10 @@ import { fmtStamp, pad } from './core.js'
 import { escapeHtml as esc, glossaryEntries, setGlossary } from './markdown.js'
 import {
   clearDraft,
+  closePickUp,
+  copyPickUp,
+  openPickUp,
+  sharePickUp,
   markAllChangesSeen,
   markChangeSeen,
   showChanges,
@@ -244,6 +248,10 @@ document.addEventListener('click', async event => {
   else if (action === 'ask-run') await runAsk()
   else if (action === 'ask-copy') await copyAnswer()
   else if (action === 'term-close') closeTerm()
+  else if (action === 'pickup-open') state.pickUp ? closePickUp() : openPickUp()
+  else if (action === 'pickup-close') closePickUp()
+  else if (action === 'pickup-copy') await copyPickUp()
+  else if (action === 'pickup-share') await sharePickUp()
   else if (action === 'changes-show') await showChanges(value)
   else if (action === 'changes-seen') markChangeSeen(value)
   else if (action === 'changes-all-seen') markAllChangesSeen()
