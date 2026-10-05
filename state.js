@@ -138,7 +138,9 @@ export const state = {
   // The usage panel under the top bar.
   usageOpen: false,
   // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
-  share: null                                                                                                           ,
+  share: null                                                                                                                         ,
+  // The glossary term whose explanation is open (dismissed with its close button, Escape, or a page change).
+  term: null                 ,
   // The assistant (desktop): what it was opened from, the sources (each can be unticked), the question and the answer.
   // Kept in memory only, so it survives moving between pages but never a reload.
   ask: null                   ,

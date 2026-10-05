@@ -20,7 +20,8 @@ function names(row          , rows            )                                 
   if (row.account === 'codex') return { name: 'Codex', short: 'Cx' }
   const bothClaude = rows.filter(r => r.account !== 'codex' && r.reading).length > 1
   if (!bothClaude) return { name: 'Claude', short: 'Cl' }
-  return row.account === 'claude-desktop' ? { name: 'Claude D', short: 'Cl·D' } : { name: 'Claude L', short: 'Cl·L' }
+  // Both Claude accounts: D and L beside Claude's dot, so three readings fit a phone's top bar (Codex M5 review).
+  return row.account === 'claude-desktop' ? { name: 'Claude D', short: 'D' } : { name: 'Claude L', short: 'L' }
 }
 
 // Readings over an hour old show their age on the chip itself, so an old figure can't pass for a fresh one.
@@ -73,7 +74,7 @@ export function renderUsageBar(usage                            , now        )  
     <button type="button" class="usage-toggle" data-action="usage-toggle" aria-expanded="${state.usageOpen}" aria-controls="usage-panel" aria-label="${esc(label)}" title="Usage">
       ${chips
         .map(
-          c => `<span class="u"><span class="u-dot" style="background:${DOT[c.account]}"></span><span class="u-name">${esc(c.name)}</span><span class="u-short">${esc(c.short)}</span> ${esc(c.text)}${c.age ? ` <span class="u-age muted">${esc(c.age)}</span>` : ''}</span>`,
+          c => `<span class="u${c.age ? ' stale' : ''}"><span class="u-dot" style="background:${DOT[c.account]}"></span><span class="u-name">${esc(c.name)}</span><span class="u-short">${esc(c.short)}</span> ${esc(c.text)}${c.age ? ` <span class="u-age muted">${esc(c.age)}</span>` : ''}</span>`,
         )
         .join('')}
       <span class="u-caret" aria-hidden="true">${state.usageOpen ? '▴' : '▾'}</span>

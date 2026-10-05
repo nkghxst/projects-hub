@@ -142,7 +142,7 @@ export function noteCard(n               , isQueued         , hold              
         }
         <button class="link muted" data-action="copy" data-text="${esc(`${sent.title}\n\n${sent.body}${sent.source ? `\n\n${sent.source}` : ''}`)}">Copy</button>
         <button class="link muted" data-action="share-note" data-value="${esc(sent.path)}" title="Share to Claude, or another app">↗ Share</button>
-        ${state.source?.ask ? `<button class="link muted" data-action="ask-note" data-value="${esc(sent.path)}" title="Ask Claude on this desktop for a first experiment, citing the note">✦ Develop</button>` : ''}
+        ${state.source?.ask ? `<button class="link muted" data-action="ask-note" data-value="${esc(sent.path)}" title="Ask Claude on this desktop for a first experiment, citing the note">✦ Develop here</button>` : ''}
       </div>
       ${state.share?.target === 'note' && state.share.note === sent.path ? renderSharePanel() : ''}`
     : ''

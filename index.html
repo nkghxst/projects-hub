@@ -16,7 +16,7 @@
   </head>
   <body>
     <header class="bar">
-      <a class="brand" href="#/"><img src="icon.svg" alt="" width="22" height="22"> Projects</a>
+      <a class="brand" href="#/" aria-label="Projects home"><img src="icon.svg" alt="" width="22" height="22"> <span class="brand-name">Projects</span></a>
       <div id="usagebar" class="usagebar"></div>
       <span id="loaded" class="muted"></span>
       <nav id="nav"></nav>
@@ -27,6 +27,7 @@
     </main>
     <nav id="tabbar" class="tabbar" aria-label="Main"></nav>
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="term-pop" class="term-pop" role="status" aria-live="polite" hidden></div>
     <script type="module" src="app.js"></script>
   </body>
 </html>

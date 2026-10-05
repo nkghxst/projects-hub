@@ -5,6 +5,27 @@ import { escapeHtml as esc } from './markdown.js'
 import { currentShare } from './actions.js'
 import { state } from './state.js'
 
+// The exact text, escaped, with the part quoted from the record (between the triple quotes) set apart from the
+// instructions around it; read as text, it's still exactly what's sent (Codex M5 review: at phone width the
+// instructions filled the preview).
+export function shareTextHtml(text        )         {
+  const start = text.indexOf('"""\n')
+  const end = text.lastIndexOf('\n"""')
+  if (start === -1 || end <= start) return esc(text)
+  return `${esc(text.slice(0, start + 4))}<span class="quoted">${esc(text.slice(start + 4, end))}</span>${esc(text.slice(end))}`
+}
+
+// What's being sent and how much: "Sending “Current checkpoint” from Saltglass · 1,234 characters".
+export function shareSummary(prompt                                  )         {
+  const share = state.share
+  const record = share?.target === 'section' ? state.record : null
+  const section = record?.sections[share?.index ?? -1]
+  const project = record ? (state.data?.projects.find(p => p.file === record.path)?.name ?? record.title) : ''
+  const note = share?.target === 'note' ? state.notes.find(n => n.path === share.note) : undefined
+  const what = section ? `“${section.title}” from ${project}` : note ? `the ${note.kind} “${note.title}”` : 'this text'
+  return `Sending ${what} · ${prompt.text.length.toLocaleString('en-GB')} characters${prompt.isCut ? ', cut to fit' : ''}`
+}
+
 export function renderSharePanel()         {
   const share = state.share
   if (!share) return ''
@@ -34,7 +55,8 @@ export function renderSharePanel()         {
           : ''
       }
       <p class="muted small">This exact text leaves the hub for the app you choose${prompt.isCut ? ' (cut to fit, and it says where)' : ''}. Nothing is run or saved here; any answer stays in that app.</p>
-      <pre id="share-text" class="share-text" tabindex="0">${esc(prompt.text)}</pre>
+      <p id="share-size" class="small share-size">${esc(shareSummary(prompt))}</p>
+      <pre id="share-text" class="share-text" tabindex="0">${shareTextHtml(prompt.text)}</pre>
       <div class="actions">
         <button type="button" class="primary" data-action="share-send">${canShare ? 'Share…' : 'Copy for Claude'}</button>
         <button type="button" data-action="share-copy">Copy</button>

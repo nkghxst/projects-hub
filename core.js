@@ -283,7 +283,16 @@ export function commitBy(subject        , hosts       )         {
 // When each device last published a change to the profile: its newest commit. A sync with nothing new to publish
 // leaves no commit, so this is "last change published", not "last synced".
 // `unpublished`: commits this computer has made but not yet pushed (the desktop server knows; the phone doesn't).
-                                                                                                                     
+// When each device last published a change. On the desktop, also: commits made there but not yet pushed, when this copy
+// last fetched from GitHub, and whether git could be read at all (if not, all of it is unknown).
+                         
+                        
+                       
+                      
+                      
+                             
+                     
+ 
 export function publishedBy(commits          )            {
   const out            = { desktop: null, laptop: null, phone: null }
   for (const c of commits) {
@@ -1093,12 +1102,17 @@ export async function sectionHash(text        )                  {
 
 // The Claude Code CLI run for one summary, isolated from the owner's own setup: no user settings (so no hooks or
 // mods), no MCP servers, no tools, no saved transcript, and a short system prompt of its own. The prompt goes
-// on standard input; run it with SUMMARY_ENV set over the environment. The assistant (AG) runs the same way with
-// its own system prompt.
+// on standard input; run it with SUMMARY_ENV set over the environment, from CLAUDE_RUN_DIR. The assistant (AG) runs
+// the same way with its own system prompt. Safe mode turns off every customisation (hooks, CLAUDE.md, skills, plugins,
+// MCP servers) while keeping the normal login; hooks are switched off again explicitly. (--bare would also skip them,
+// but it never reads the OAuth login.) Admin-managed policy settings still apply; nothing on the command line can
+// change that. (Codex M5 review: project hooks were still enabled.)
 export function claudeArgs(model        , system        )           {
   return [
     '-p',
     '--model', model,
+    '--safe-mode',
+    '--settings', JSON.stringify({ disableAllHooks: true }),
     '--setting-sources', 'project',
     '--strict-mcp-config',
     '--tools', '',
@@ -1107,6 +1121,9 @@ export function claudeArgs(model        , system        )           {
     '--system-prompt', system,
   ]
 }
+// The folder those runs start in, relative to the mods' own folder: it holds only a README, so there's no project setting,
+// CLAUDE.md or hook for a run to find there.
+export const CLAUDE_RUN_DIR = 'tools/claude-run'
 export const summaryArgs = (model        ) => claudeArgs(model, SUMMARY_SYSTEM)
 export const SUMMARY_ENV                         = { PROFILE_SYNC: 'off', CLAUDE_CODE_PLUGIN_DIRS: '' }
 
@@ -1171,6 +1188,8 @@ export function summaryPrompt(project        , sectionTitle        , body       
                
                                                                           
                     
+                                                                                                        
+               
  
 const SNIPPET = 180
 export const SEARCH_MAX = 200
@@ -1296,14 +1315,28 @@ export function sharePrompt(input            , nowMs        )                   
   return { title: title.slice(0, 120), text: `${ask.join('\n')}\n\n${from}\n\n"""\n${quoted}\n"""\n`, isCut }
 }
 
+// Search results with the fingerprint of each matched section's text (the desktop server adds these), so asking about
+// a result names that exact section even when another has the same title.
+export async function withSectionHashes                                             (texts                        , hits     )                                     {
+  const docs = new Map                   ()
+  return Promise.all(
+    hits.map(async h => {
+      if (!docs.has(h.path)) docs.set(h.path, parseDoc(h.path, texts[h.path] ?? '').sections)
+      const body = docs.get(h.path)?.[h.section]?.body
+      return body === undefined ? h : { ...h, hash: await sectionHash(body) }
+    }),
+  )
+}
+
 // ---------- AG: the grounded assistant (desktop) ----------
 
 // A question about sections the owner picked (search results, a record, or a note), answered by one isolated
 // `claude -p` run set up like the summaries: only from those sources, each fact cited by number, anything they don't
 // say called unknown with the quickest check, numbers copied exactly. Nothing is saved; the answer names its writer.
                                              
-// A section to ask about, as the page knows it: the server re-reads its text from the profile.
-                                                                      
+// A section to ask about, as the page knows it: the server re-reads its text from the profile. `hash` is the
+// fingerprint of the text the page had (sectionHash), which tells same-titled sections apart.
+                                                                                     
                                                                                 
                                                                                             
                                                                      
@@ -1320,7 +1353,9 @@ export function sharePrompt(input            , nowMs        )                   
                  
                                                     
                    
-                                       
+                                                                                                                    
+                                   
+                
                 
  
                                                                                                         
@@ -1358,7 +1393,12 @@ export function askPrompt(input                                                 
     total += body.length
     sources.push({ ...s, text: body, n: sources.length + 1, isCut })
   }
-  const numbers = "Copy numbers, names, versions and dates exactly; never add, round or estimate any."
+  const numbers =
+    'Copy numbers, names, versions and dates exactly; never add, round or estimate any. Keep each claim to the scope ' +
+    'the source gives it (who, what and when). Use square brackets only for citations.'
+  const today =
+    "Don't state today's date or what is true now: say what date the latest source carries, and that anything after " +
+    'it is unknown.'
   const unknown = 'If the sources don\'t answer something, write "Unknown from these sources" and say the quickest way to check.'
   const question = input.question.trim()
   const ask =
@@ -1371,6 +1411,7 @@ export function askPrompt(input                                                 
           '- After each fact, cite the source it comes from by number in square brackets, like [2]; for more than one, [1][3].',
           `- ${unknown}`,
           `- ${numbers}`,
+          `- ${today}`,
         ]
       : [
           'Help me turn this idea into a first small experiment, using the sources below.',
@@ -1378,7 +1419,7 @@ export function askPrompt(input                                                 
           '',
           'Reply in two parts, with these headings:',
           '## What the sources say',
-          `What the idea and any records below say that's relevant, briefly, each fact cited by source number like [1]. ${unknown}`,
+          `What the idea and any records below say that's relevant, briefly, each fact cited by source number like [1]. ${unknown} ${numbers} ${today}`,
           '## Suggested first experiment',
           'Your suggestion, which is not a fact from the sources: the smallest useful version, the questions to answer first, ' +
             "the first three steps, and the risks or costs. Don't cite sources for your own ideas, and don't invent numbers " +
@@ -1391,10 +1432,14 @@ export function askPrompt(input                                                 
 }
 
 // The source numbers an answer cites, in any of the usual forms ([1], [1, 2], [1][3]); those outside 1..count are
-// citations to sources that weren't given.
+// citations to sources that weren't given. Code (fenced or inline) is skipped, as the page skips it when linking, so
+// the list and the links agree. A bracketed number quoted from a record still reads as a citation: the prompt keeps
+// square brackets for citations, and no ranges ([1–3]) are guessed at. (Codex M5 review.)
+export const CITATION = /\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]/g
 export function citationsIn(text        , count        )                                         {
   const all = new Set        ()
-  for (const m of text.matchAll(/\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]/g)) for (const n of m[1].split(',')) all.add(Number(n.trim()))
+  const prose = text.replace(/```[\s\S]*?(?:```|$)/g, ' ').replace(/`[^`\n]*`/g, ' ')
+  for (const m of prose.matchAll(CITATION)) for (const n of m[1].split(',')) all.add(Number(n.trim()))
   const sorted = [...all].sort((a, b) => a - b)
   return { cited: sorted.filter(n => n >= 1 && n <= count), unknown: sorted.filter(n => n < 1 || n > count) }
 }
@@ -1413,7 +1458,7 @@ export function parseGlossary(md        )                  {
     const m = line.match(/^\s*[-*]\s+\*\*([^*]{1,40})\*\*\s*(?:\(([^)]{1,60})\))?\s*[—–-]\s*(.+)$/)
     if (!m) continue
     const [meaning, source = ''] = m[3].split(/\s*Source\s*:\s*/i)
-    if (meaning.trim()) out.push({ term: m[1].trim(), scope: (m[2] ?? '').trim(), meaning: textOf(meaning.trim()), source: source.trim() })
+    if (m[1].trim() && meaning.trim()) out.push({ term: m[1].trim(), scope: (m[2] ?? '').trim(), meaning: textOf(meaning.trim()), source: source.trim() })
   }
   return out
 }

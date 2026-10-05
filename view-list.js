@@ -104,6 +104,9 @@ function changeChip(p         , pair                     )         {
 // here but not yet pushed are named, so they aren't mistaken for published ones.
 function freshness(published                   , now        )         {
   if (!published) return ''
+  if (published.isUnknown) {
+    return `<p class="freshness muted small">Last change published: unknown (git couldn't be read on this computer)</p>`
+  }
   const part = (label        , tone                                , ms               ) =>
     ms === null ? '' : `<span>${dot(tone)} ${label} ${esc(ageLabel(ms, now, true))} ago</span>`
   const parts = [part('Desktop', 'desktop', published.desktop), part('Laptop', 'laptop', published.laptop), part('Phone', 'muted', published.phone)].filter(Boolean)
@@ -111,8 +114,9 @@ function freshness(published                   , now        )         {
     ? `<span class="warning-text">${published.unpublished} change${published.unpublished === 1 ? '' : 's'} on this computer not yet published</span>`
     : ''
   if (parts.length === 0 && !pending) return ''
+  const fetched = typeof published.fetchedAtMs === 'number' ? `<span>checked GitHub ${esc(ageLabel(published.fetchedAtMs, now, true))} ago</span>` : ''
   const where = state.mode === 'local' ? "GitHub's copy as of this computer's last sync" : 'GitHub'
-  return `<p class="freshness muted small" title="The newest commit from each device on ${where}. A sync with nothing new to publish doesn't show here.">Last change published: ${[...parts, pending].filter(Boolean).join(' · ')}</p>`
+  return `<p class="freshness muted small" title="The newest commit from each device on ${where}. A sync with nothing new to publish doesn't show here.">Last change published: ${[...parts, pending, fetched].filter(Boolean).join(' · ')}</p>`
 }
 
 // A search result: project, section, and an excerpt with the matched words highlighted (escaped first).

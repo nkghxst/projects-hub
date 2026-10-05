@@ -11,21 +11,23 @@ export function escapeHtml(text        )         {
 
 // Glossary terms (from memory/desktop/hub/glossary.md), explained on hover and on tap wherever they appear in text:
 // whole words only, never inside code, a tag or a link's address. A lower-case term ("baton") also matches with a
-// capital, as at the start of a sentence; anything else matches only as written.
-                                                            
-let terms = new Map              ()
+// capital, as at the start of a sentence; anything else matches only as written. A term with meanings in more than one
+// scope (two projects using one acronym) offers all of them, never just the last one listed (Codex M5 review).
+                                                                             
+let terms = new Map                ()
 let termPattern                = null
 export function setGlossary(entries        ) {
-  terms = new Map(
-    entries.flatMap((e)                   => {
-      const capital = e.term.charAt(0).toUpperCase() + e.term.slice(1)
-      return e.term === e.term.toLowerCase() && capital !== e.term ? [[e.term, e], [capital, e]] : [[e.term, e]]
-    }),
-  )
+  terms = new Map()
+  for (const e of entries) {
+    const capital = e.term.charAt(0).toUpperCase() + e.term.slice(1)
+    for (const key of e.term === e.term.toLowerCase() && capital !== e.term ? [e.term, capital] : [e.term]) terms.set(key, [...(terms.get(key) ?? []), e])
+  }
   const words = [...terms.keys()].sort((a, b) => b.length - a.length).map(t => escapeHtml(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   termPattern = words.length > 0 ? new RegExp(`(?<![\\w-])(${words.join('|')})(?![\\w-])`, 'g') : null
 }
-export const glossaryTerm = (term        ) => terms.get(term)
+export const glossaryEntries = (term        )         => terms.get(term) ?? []
+// One line per meaning: "K2 (Projects hub): the check that …".
+export const glossaryText = (entries        ) => entries.map(t => `${t.term}${t.scope ? ` (${t.scope})` : ''}: ${t.meaning}`).join('\n')
 
 // Terms already marked in the Markdown being rendered: only a term's first use in a section is marked.
 let marked                     = null
@@ -46,11 +48,11 @@ function withTerms(html        )         {
       }
       if (inLink) return part
       return part.replace(pattern, (word        ) => {
-        const t = terms.get(word.replace(/&amp;/g, '&'))
-        if (!t || marked?.has(t.term)) return word
-        marked?.add(t.term)
-        const label = `${t.term}${t.scope ? ` (${t.scope})` : ''}: ${t.meaning}`
-        return `<abbr class="term" tabindex="0" data-term="${escapeHtml(t.term)}" title="${escapeHtml(label)}">${word}</abbr>`
+        const found = terms.get(word.replace(/&amp;/g, '&')) ?? []
+        const term = found[0]?.term
+        if (!term || marked?.has(term)) return word
+        marked?.add(term)
+        return `<abbr class="term" tabindex="0" role="button" aria-controls="term-pop" data-term="${escapeHtml(word.replace(/&amp;/g, '&'))}" title="${escapeHtml(glossaryText(found))}">${word}</abbr>`
       })
     })
     .join('')

@@ -348,3 +348,18 @@ a.cite:hover { text-decoration: underline; }
 .ask-cited li { margin: 2px 0; }
 .ask-sent summary { cursor: pointer; }
 .home-h .ask-link { font-size: 13px; font-weight: 600; margin-left: 8px; }
+
+/* A glossary term's explanation, under the term until closed. */
+.term-pop { position: absolute; z-index: 30; max-width: calc(100vw - 24px); background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 32px 8px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); font-size: 14px; }
+.term-pop p { margin: 4px 0; }
+.term-pop .term-close { position: absolute; top: 4px; right: 6px; padding: 2px 6px; }
+.ask-asked { margin: 4px 0 8px; }
+.ask-asked q { font-style: italic; }
+.ask-sent h4 { margin: 8px 0 2px; font-weight: 600; }
+.share-size { margin: 4px 0 0; font-weight: 600; }
+.share-text .quoted { display: block; border-left: 3px solid var(--accent); padding-left: 8px; color: var(--ink); }
+
+/* Narrow phones: three usage readings fit beside the logo. An old reading is dimmed; its age is in the panel and the
+   spoken label (Codex M5 review). */
+@media (max-width: 420px) { .brand-name { display: none; } .u-age { display: none; } .u.stale { opacity: 0.6; } .usage-toggle { gap: 7px; padding: 3px 7px; } }

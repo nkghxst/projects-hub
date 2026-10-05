@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, sectionHash, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -108,6 +108,10 @@ function replaceSource(next               ) {
   state.abort = new AbortController()
   state.sourceGeneration++
   state.source = next
+  // The assistant and share panel hold private record text: they go with the connection (Codex M5 review).
+  state.ask = null
+  state.share = null
+  state.term = null
   state.data = null
   state.notes = []
   state.record = null
@@ -250,6 +254,7 @@ function noteRecordSeen() {
 export async function route() {
   const r = currentRoute()
   state.share = null
+  state.term = null
   if (r.name !== 'record' || r.path !== state.seenVisit) {
     state.seenVisit = ''
     state.seenVersion = ''
@@ -389,7 +394,8 @@ export async function setHandled(note        , handled         ) {
 // ---------- sharing a section or a note to Claude ----------
 
 export function openShare(target                                                               ) {
-  state.share = { ...target, kind: target.target === 'section' ? 'explain' : 'develop', question: '' }
+  // The time stamped into the text is fixed when the panel opens, so what's sent is what's shown (Codex M5 review).
+  state.share = { ...target, kind: target.target === 'section' ? 'explain' : 'develop', question: '', atMs: Date.now() }
   changed()
 }
 export function closeShare() {
@@ -412,13 +418,13 @@ export function currentShare()                                                  
     const p = state.data?.projects.find(x => x.file === doc.path)
     return sharePrompt(
       { kind: share.kind, question: share.question, project: p?.name ?? doc.title, machine: p?.machine, section: section.title, path: doc.path, text: section.body },
-      Date.now(),
+      share.atMs,
     )
   }
   const note = state.notes.find(n => n.path === share.note)
   if (!note) return null
   const text = `${note.body}${note.source ? `\n\nLink: ${note.source}` : ''}`
-  return sharePrompt({ kind: share.kind, question: share.question, project: '', section: note.title, path: note.path, text, captured: note.captured }, Date.now())
+  return sharePrompt({ kind: share.kind, question: share.question, project: '', section: note.title, path: note.path, text, captured: note.captured }, share.atMs)
 }
 
 // The device's share sheet when there is one (pick the Claude app there), otherwise a copy. Cancelling the sheet is
@@ -437,10 +443,10 @@ export async function shareNow() {
       // Some browsers refuse sharing here: copy instead.
     }
   }
-  await copyShare()
+  // A refused share sheet copies the very text it was offered.
+  await copyShare(prompt)
 }
-export async function copyShare() {
-  const prompt = currentShare()
+export async function copyShare(prompt = currentShare()) {
   if (!prompt) return
   try {
     await navigator.clipboard.writeText(prompt.text)
@@ -468,19 +474,31 @@ export function askFromSearch() {
   openAsk(
     'answer',
     `Search results for “${state.searchFor}”`,
-    hits.map((h, i) => ({ pick: { path: h.path, section: h.section, title: h.sectionTitle }, label: `${labelOf(h.path)} — ${h.sectionTitle}`, isOn: i < ASK_MAX_SOURCES })),
+    hits.map((h, i) => ({
+      pick: { path: h.path, section: h.section, title: h.sectionTitle, ...(h.hash ? { hash: h.hash } : {}) },
+      label: `${labelOf(h.path)} — ${h.sectionTitle}`,
+      isOn: i < ASK_MAX_SOURCES,
+    })),
   )
 }
 
-// The open record: the text above its sections, its current section, then the rest in order (what fits is sent).
-export function askFromRecord() {
+// The open record: the text above its sections and its current section, ticked; the other sections listed after
+// them, unticked, to add when a question needs them. Each carries the fingerprint of the text shown, so the server sends
+// exactly that section (Codex M5 review).
+export async function askFromRecord() {
   const doc = state.record
   if (!doc) return
   const current = currentSectionIndex(doc.sections.map(s => s.title))
   const order = [current, ...doc.sections.map((_, i) => i).filter(i => i !== current)].filter(i => i >= 0 && i < doc.sections.length)
-  openAsk('answer', `The record ${labelOf(doc.path)}`, [
+  const hashes = await Promise.all(doc.sections.map(s => sectionHash(s.body)))
+  if (state.record !== doc) return
+  openAsk('answer', `From ${labelOf(doc.path)}`, [
     ...(doc.preamble.trim() ? [{ pick: { path: doc.path, section: -1, title: '' }, label: 'Top of the record', isOn: true }] : []),
-    ...order.map(i => ({ pick: { path: doc.path, section: i, title: doc.sections[i].title }, label: doc.sections[i].title, isOn: true })),
+    ...order.map(i => ({
+      pick: { path: doc.path, section: i, title: doc.sections[i].title, hash: hashes[i] },
+      label: i === current ? `${doc.sections[i].title} (current)` : doc.sections[i].title,
+      isOn: i === current,
+    })),
   ])
 }
 
@@ -500,8 +518,9 @@ export function toggleAskPick(index        ) {
   if (pick) pick.isOn = !pick.isOn
   changed()
 }
+// The question and kind can't change under an answer being written (Codex M5 review): the answer is for what was sent.
 export function setAskKind(kind         ) {
-  if (state.ask) state.ask.kind = kind
+  if (state.ask && state.ask.status !== 'running') state.ask.kind = kind
   changed()
 }
 
@@ -515,6 +534,7 @@ export async function runAsk() {
   ask.error = ask.kind === 'answer' && !ask.question.trim() ? 'Type a question first.' : sources.length === 0 ? 'Tick at least one source.' : ''
   if (ask.error) return changed()
   const run = ++askRun
+  const generation = state.sourceGeneration
   ask.status = 'running'
   ask.answer = null
   changed()
@@ -524,7 +544,7 @@ export async function runAsk() {
   } catch (error) {
     result = { ok: false, error: errorText(error) }
   }
-  if (state.ask !== ask || run !== askRun) return
+  if (state.ask !== ask || run !== askRun || generation !== state.sourceGeneration || state.source !== source) return
   ask.status = result.ok ? 'done' : 'error'
   if (result.ok) ask.answer = result.answer
   else ask.error = result.error

@@ -4,7 +4,7 @@
 // This file draws the page and wires up events; views, state and actions live in their own modules.
 import { fmtStamp, pad } from './core.js'
                                                                    
-import { escapeHtml as esc, glossaryTerm, setGlossary } from './markdown.js'
+import { escapeHtml as esc, glossaryEntries, setGlossary } from './markdown.js'
 import {
   clearDraft,
   askFromNote,
@@ -49,6 +49,7 @@ import { renderSetup } from './view-setup.js'
 import { renderUsageBar } from './view-usage.js'
 import { renderRecord } from './view-record.js'
 import { renderAsk } from './view-ask.js'
+import { shareSummary, shareTextHtml } from './view-share.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
 const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
@@ -163,22 +164,56 @@ function render() {
   loadedLabel.textContent = state.loadedAt ? `${pad(at.getHours())}:${pad(at.getMinutes())}` : ''
   loadedLabel.title = state.loadedAt ? `Loaded ${at.toLocaleString('en-GB')}; refreshes every 2 min` : ''
 
+  renderTermPop()
   restoreFocus(focus)
   // The usage button is redrawn with the bar; keep keyboard focus on it.
   if (isUsageFocused) (document.querySelector('[data-action="usage-toggle"]')                      )?.focus()
 }
 onChange(render)
 
-// A glossary term explains itself when tapped or chosen with Enter (hovering shows it too, on a desktop).
+// A glossary term explains itself when tapped or chosen with Enter (hovering shows it too, on a desktop): under the
+// term, until it's closed with its button, Escape, a tap elsewhere or a page change. Not a toast, which timed out and
+// followed the reader onto other pages (Codex M5 review).
+const termPop = document.getElementById('term-pop')               
+function renderTermPop(anchor                     ) {
+  const entries = state.term ? glossaryEntries(state.term) : []
+  termPop.hidden = entries.length === 0
+  termPop.innerHTML =
+    entries.length === 0
+      ? ''
+      : '<button type="button" class="link muted term-close" data-action="term-close" aria-label="Close the explanation">✕</button>' +
+        entries
+          .map(
+            t =>
+              `<p><strong>${esc(t.term)}</strong>${t.scope ? ` <span class="muted">(${esc(t.scope)})</span>` : ''}: ${esc(t.meaning)}` +
+              `${t.source ? `<br><span class="muted small">Source: ${esc(t.source)}</span>` : ''}</p>`,
+          )
+          .join('')
+  const rect = anchor?.getBoundingClientRect?.()
+  if (rect && termPop.style && entries.length > 0) {
+    const width = Math.min(360, window.innerWidth - 24)
+    termPop.style.width = `${width}px`
+    termPop.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)) + window.scrollX}px`
+    termPop.style.top = `${rect.bottom + window.scrollY + 6}px`
+  }
+}
 function explainTerm(el                    ) {
   const name = el?.dataset?.term
-  const t = name ? glossaryTerm(name) : undefined
-  if (t) toast(`${t.term}${t.scope ? ` (${t.scope})` : ''}: ${t.meaning}`)
+  if (!name || glossaryEntries(name).length === 0) return
+  state.term = state.term === name ? null : name
+  renderTermPop(el)
+}
+function closeTerm() {
+  if (state.term === null) return false
+  state.term = null
+  renderTermPop()
+  return true
 }
 
 document.addEventListener('click', async event => {
   const term = (event.target               ).closest?.('.term')                      
   if (term) explainTerm(term)
+  else if (!(event.target               ).closest?.('#term-pop')) closeTerm()
   const target = (event.target               ).closest('[data-action]')                      
   // A click anywhere outside the usage bar closes its panel.
   if (state.usageOpen && !(event.target               ).closest('#usagebar')) {
@@ -202,6 +237,7 @@ document.addEventListener('click', async event => {
   else if (action === 'ask-kind') setAskKind(value           )
   else if (action === 'ask-run') await runAsk()
   else if (action === 'ask-copy') await copyAnswer()
+  else if (action === 'term-close') closeTerm()
   else if (action === 'share-close') closeShare()
   else if (action === 'usage-toggle') {
     state.usageOpen = !state.usageOpen
@@ -296,12 +332,15 @@ document.addEventListener('input', event => {
   else if (el.id === 'set-repo') state.settingsDraft.repo = el.value
   else if (el.id === 'set-token') state.settingsDraft.token = el.value
   else if (el.id === 'set-api') state.settingsDraft.apiBase = el.value
-  else if (el.id === 'ask-question' && state.ask) state.ask.question = el.value
+  else if (el.id === 'ask-question' && state.ask && state.ask.status !== 'running') state.ask.question = el.value
   else if (el.id === 'share-question' && state.share) {
     // The preview follows the question as it's typed, without redrawing the field.
     state.share.question = el.value
+    const prompt = currentShare()
     const preview = document.getElementById('share-text')
-    if (preview) preview.textContent = currentShare()?.text ?? ''
+    if (preview) preview.innerHTML = prompt ? shareTextHtml(prompt.text) : ''
+    const size = document.getElementById('share-size')
+    if (size) size.textContent = prompt ? shareSummary(prompt) : ''
   }
 })
 
@@ -343,6 +382,7 @@ document.addEventListener('keydown', event => {
     explainTerm(el)
     return
   }
+  if (event.key === 'Escape' && closeTerm()) return
   if (event.key === 'Enter' && el.id === 'ask-question') {
     event.preventDefault()
     void runAsk()

@@ -39,12 +39,20 @@ function withCitations(html        , answer           )         {
     .join('')
 }
 
+// A source by the project's name from the index, as the rest of the hub shows it, with the record's own heading
+// on hover (Codex M5 review: two names for one project).
+function sourceName(s                              )         {
+  const name = state.data?.projects.find(p => p.file === s.path)?.name ?? s.project
+  return name ? `${name} — ${s.title}` : s.title
+}
+
 function answerHtml(a           )         {
   const count = a.sources.length
   return `
     <section class="card ai ask-answer" aria-label="Answer">
       <div class="summary-head"><strong class="ai-ink">✦ ${a.kind === 'answer' ? 'Answer' : 'Developed idea'}</strong>
         <span class="muted">written by ${esc(a.model)}, ${esc(fmtStamp(a.atMs, Date.now()))}, from ${count} source${count === 1 ? '' : 's'}; check it against them${a.note ? ` (fallback: ${esc(a.note)})` : ''}</span></div>
+      ${a.question ? `<p class="ask-asked">${a.kind === 'answer' ? 'You asked' : 'You wanted'}: <q>${esc(a.question)}</q></p>` : ''}
       ${a.kind === 'experiment' ? `<p class="muted small">The suggested experiment is Claude's idea, not something your records say.</p>` : ''}
       ${
         a.unknown.length > 0
@@ -56,12 +64,15 @@ function answerHtml(a           )         {
       <ol class="ask-cited">
         ${a.sources
           .map(
-            s => `<li value="${s.n}"><a href="${esc(sourceHref(s))}">${esc(s.project ? `${s.project} — ${s.title}` : s.title)}</a>${s.isCut ? ' <span class="muted small">(cut to fit)</span>' : ''}${a.cited.includes(s.n) ? '' : ' <span class="muted small">· not cited</span>'}</li>`,
+            s => `<li value="${s.n}"><a href="${esc(sourceHref(s))}" title="${esc(`${s.project} · ${s.path}`)}">${esc(sourceName(s))}</a>${s.isCut ? ' <span class="muted small">(cut to fit)</span>' : ''}${a.cited.includes(s.n) ? '' : ' <span class="muted small">· not cited</span>'}</li>`,
           )
           .join('')}
       </ol>
       ${a.leftOut.length > 0 ? `<p class="muted small">Left out, over the size limit: ${a.leftOut.map(l => esc(l.title || l.path)).join(' · ')}</p>` : ''}
-      <details class="ask-sent"><summary class="muted small">Show exactly what was sent</summary><pre class="share-text" tabindex="0">${esc(a.prompt)}</pre></details>
+      <details class="ask-sent"><summary class="muted small">Show what the hub sent</summary>
+        <p class="muted small">The instructions and the prompt below are everything the hub sent. Claude Code adds its own context, which the hub can't show.</p>
+        ${a.system ? `<h4 class="muted small">Instructions</h4><pre class="share-text" tabindex="0">${esc(a.system)}</pre>` : ''}
+        <h4 class="muted small">Prompt</h4><pre class="share-text" tabindex="0">${esc(a.prompt)}</pre></details>
       <p class="muted small">Not saved anywhere: copy it if you want to keep it.</p>
       <div class="actions"><button type="button" data-action="ask-copy">Copy answer and sources</button></div>
     </section>`
@@ -92,11 +103,11 @@ export function renderAsk()         {
             ['experiment', 'Develop into an experiment'],
           ]         
         )
-          .map(([k, label]) => `<button type="button" data-action="ask-kind" data-value="${k}" class="${ask.kind === k ? 'on' : ''}" aria-pressed="${ask.kind === k}">${label}</button>`)
+          .map(([k, label]) => `<button type="button" data-action="ask-kind" data-value="${k}" class="${ask.kind === k ? 'on' : ''}" aria-pressed="${ask.kind === k}"${isRunning ? ' disabled' : ''}>${label}</button>`)
           .join('')}
       </div>
       <label class="share-q"><span>${ask.kind === 'answer' ? 'Your question' : 'Anything in particular? (optional)'}</span>
-        <input id="ask-question" value="${esc(ask.question)}" placeholder="${ask.kind === 'answer' ? 'For example: which projects touch the MOTU?' : 'For example: keep it under an evening'}" autocomplete="off" maxlength="500"></label>
+        <input id="ask-question" value="${esc(ask.question)}" placeholder="${ask.kind === 'answer' ? 'For example: which projects touch the MOTU?' : 'For example: keep it under an evening'}" autocomplete="off" maxlength="500"${isRunning ? ' disabled' : ''}></label>
       <fieldset class="ask-sources"><legend>Sources: ${on} of ${ask.picks.length} ticked</legend>
         ${ask.picks
           .map(
@@ -104,7 +115,7 @@ export function renderAsk()         {
           )
           .join('')}
       </fieldset>
-      <p class="muted small">Runs once on this desktop with your Claude login, isolated: no tools, and only the ticked sections, re-read from your records. Past about 48,000 characters the later sources are left out, and the answer lists them. Nothing is saved.</p>
+      <p class="muted small">Runs once on this desktop with your Claude login, in safe mode: no tools, hooks, plugins or CLAUDE.md, and only the ticked sections, re-read from your records. Past about 48,000 characters the later sources are left out, and the answer lists them. Each Ask is a new run. Nothing is saved.</p>
       <div class="actions">
         <button type="button" class="primary" data-action="ask-run"${isRunning ? ' disabled' : ''}>${isRunning ? 'Writing…' : ask.answer ? 'Ask again' : 'Ask'}</button>
         ${isRunning ? '<span class="muted small" role="status">Writing the answer: this can take a minute.</span>' : ''}
