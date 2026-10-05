@@ -52,6 +52,8 @@
                            
                                                                                      
                                 
+                                                                                                          
+                 
                
                                                                         
                                                  
@@ -258,6 +260,7 @@ export function buildProject(
     updatedDays: extra.updatedDays ?? [],
     activityComplete: extra.activityComplete ?? true,
     prints: sectionPrints(record),
+    repos: reposIn(record),
     ...facts,
   }
 }
@@ -1262,9 +1265,14 @@ export function searchRecords(texts                        , query        , nowM
 // ---------- sharing to Claude (or any app): a prepared prompt around exact quoted text ----------
 
 // What leaves the hub when the owner shares a section or an idea: a short instruction, where the text came from, and the
-// text itself, verbatim. Nothing is run or saved here; the app he picks does the rest. The instructions carry the
-// hub's rules: only the quoted text, unknowns said as unknown, no invented numbers, quotes for facts.
+// text itself, verbatim. Nothing is run or saved here; the app he picks does the rest.
+// - Explain is strict: only the quoted text, unknowns said as unknown, no invented numbers, quotes for facts.
+// - Ask and Develop "look into it" (the owner's call, 5 Oct): they also carry the project's brief and the GitHub repositories its
+//   record mentions, and invite the app to use its own tools (a GitHub connector, say), with every point labelled as
+//   from the notes, looked up (with its link) or the app's own suggestion. Unknowns and numbers keep the same rules.
                                                      
+// The project's current brief, as the hub shows it.
+                                                                                                                  
                           
                  
                  
@@ -1275,8 +1283,21 @@ export function searchRecords(texts                        , query        , nowM
               
                    
                    
+                    
+                  
  
 export const SHARE_LIMIT = 12_000
+
+export function shareBriefOf(p         )             {
+  return {
+    checkpoint: p.currentTitle,
+    state: p.stateLine || p.state,
+    // Stated waits as they are; ones the hub only guessed at are marked as possible, as the brief shows them.
+    waiting: p.waits.map(w => (w.isStated ? w.text : `possibly: ${w.text}`)),
+    next: p.next,
+    readFirst: p.readFirst,
+  }
+}
 
 export function sharePrompt(input            , nowMs        )                                                  {
   const isCut = input.text.length > SHARE_LIMIT
@@ -1284,35 +1305,67 @@ export function sharePrompt(input            , nowMs        )                   
   const when = new Date(nowMs)
   const stamp = `${when.getDate()} ${MON[when.getMonth()]} ${when.getFullYear()} ${pad(when.getHours())}:${pad(when.getMinutes())}`
   const machine = input.machine ? `${input.machine[0].toUpperCase()}${input.machine.slice(1)} record, file` : 'File'
+  const isStrict = input.kind === 'explain'
   const from =
     input.kind === 'develop'
-      ? `Idea${input.captured ? ` (captured ${input.captured})` : ''}: "${input.section}", file ${input.path}, as shown in my projects hub on ${stamp}.`
+      ? `Idea${input.captured ? ` (captured ${input.captured})` : ''}: "${input.section}"${input.project ? `, about ${input.project}` : ''}, file ${input.path}, as shown in my projects hub on ${stamp}.`
       : `From: ${input.project || input.path} — "${input.section}"\n${machine} ${input.path}, as shown in my projects hub on ${stamp}.`
   const rules = "If the text doesn't say something, call it unknown rather than guessing, and don't invent numbers."
-  const ask =
-    input.kind === 'explain'
-      ? [
-          'Please explain this part of my project notes in plain English, briefly.',
-          '- Say what it means and where the work stands, using only the text below.',
-          '- Define any jargon or abbreviations the first time they come up.',
-          `- ${rules}`,
-          "- Quote the line you're relying on for each fact.",
+  // Looking into it: the app's own tools are welcome, with every point's source labelled.
+  const lookup = [
+    `- You may use your own tools and knowledge to look into it, such as a GitHub connector for the repositories listed below${input.repos?.length ? '' : ' (none are named)'}.`,
+    '- Label each point: (notes) for the text below, (looked up: link) for anything you found elsewhere, and (suggestion) for your own ideas.',
+    "- If you couldn't check something, say it's unknown and give the quickest way to check. Don't invent numbers.",
+    "- The notes may be out of date: if what you find differs from the notes, say so.",
+  ]
+  const ask = isStrict
+    ? [
+        'Please explain this part of my project notes in plain English, briefly.',
+        '- Say what it means and where the work stands, using only the text below.',
+        '- Define any jargon or abbreviations the first time they come up.',
+        `- ${rules}`,
+        "- Quote the line you're relying on for each fact.",
+      ]
+    : input.kind === 'ask'
+      ? ['Help me with a question about one of my projects. Below is a section of my project notes.', ...lookup, '', `Question: ${(input.question ?? '').trim() || '(type your question here)'}`]
+      : [
+          'Help me turn this idea into a first small experiment I could try.',
+          '- Give the smallest useful version, the questions to answer first, the first three steps, and the risks or costs.',
+          ...lookup,
         ]
-      : input.kind === 'ask'
-        ? [
-            'Answer my question using only the text below from my project notes.',
-            `- Quote the lines you rely on. ${rules}`,
-            '',
-            `Question: ${(input.question ?? '').trim() || '(type your question here)'}`,
-          ]
-        : [
-            'Help me turn this idea into a first small experiment I could try.',
-            '- Give the smallest useful version, the questions to answer first, the first three steps, and the risks or costs.',
-            "- Keep your suggestions clearly separate from what the idea itself says.",
-            `- ${rules}`,
-          ]
+  const b = input.brief
+  const context = isStrict
+    ? []
+    : [
+        ...(b
+          ? [
+              `Project brief${b.checkpoint ? ` (from "${b.checkpoint}")` : ''}:`,
+              `- State: ${b.state || 'not stated'}`,
+              `- Waiting on me: ${b.waiting.length > 0 ? b.waiting.join('; ') : 'nothing found'}`,
+              `- Next: ${b.next || 'not stated'}`,
+              `- Read first: ${b.readFirst || 'not stated'}`,
+            ]
+          : []),
+        ...(input.repos?.length ? ['GitHub repositories this record mentions:', ...input.repos.map(r => `- ${r}`)] : []),
+      ]
   const title = input.kind === 'explain' ? `Explain: ${input.section}` : input.kind === 'ask' ? `Question about: ${input.section}` : `Develop: ${input.section}`
-  return { title: title.slice(0, 120), text: `${ask.join('\n')}\n\n${from}\n\n"""\n${quoted}\n"""\n`, isCut }
+  const head = [ask.join('\n'), from, ...(context.length > 0 ? [context.join('\n')] : [])].join('\n\n')
+  return { title: title.slice(0, 120), text: `${head}\n\n"""\n${quoted}\n"""\n`, isCut }
+}
+
+// The GitHub repositories a record mentions, as https://github.com/owner/repo, each once, in order of first mention.
+// GitHub's own pages (settings, orgs…) and the profile repository itself aren't projects' code, so they're left out.
+const GITHUB_PAGES = new Set(['settings', 'orgs', 'features', 'about', 'pricing', 'login', 'marketplace', 'apps', 'sponsors', 'topics', 'explore', 'notifications', 'issues', 'pulls', 'new', 'search', 'enterprise', 'collections', 'site', 'contact'])
+export function reposIn(text        )           {
+  const out           = []
+  for (const m of text.matchAll(/(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})/g)) {
+    const owner = m[1]
+    const repo = m[2].replace(/\.git$/, '').replace(/[._-]+$/, '')
+    if (!repo || GITHUB_PAGES.has(owner.toLowerCase()) || repo.toLowerCase() === 'claude-profile') continue
+    const url = `https://github.com/${owner}/${repo}`
+    if (!out.some(u => u.toLowerCase() === url.toLowerCase())) out.push(url)
+  }
+  return out.slice(0, 8)
 }
 
 // Search results with the fingerprint of each matched section's text (the desktop server adds these), so asking about

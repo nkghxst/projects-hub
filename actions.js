@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, sectionHash, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, sectionHash, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -417,14 +417,37 @@ export function currentShare()                                                  
     if (!doc || !section) return null
     const p = state.data?.projects.find(x => x.file === doc.path)
     return sharePrompt(
-      { kind: share.kind, question: share.question, project: p?.name ?? doc.title, machine: p?.machine, section: section.title, path: doc.path, text: section.body },
+      {
+        kind: share.kind,
+        question: share.question,
+        project: p?.name ?? doc.title,
+        machine: p?.machine,
+        section: section.title,
+        path: doc.path,
+        text: section.body,
+        ...(p ? { brief: shareBriefOf(p), repos: p.repos ?? [] } : {}),
+      },
       share.atMs,
     )
   }
   const note = state.notes.find(n => n.path === share.note)
   if (!note) return null
   const text = `${note.body}${note.source ? `\n\nLink: ${note.source}` : ''}`
-  return sharePrompt({ kind: share.kind, question: share.question, project: '', section: note.title, path: note.path, text, captured: note.captured }, share.atMs)
+  // A note about a project carries that project's brief and repositories, so the app has something to look into.
+  const p = note.project ? state.data?.projects.find(x => x.file === note.project) : undefined
+  return sharePrompt(
+    {
+      kind: share.kind,
+      question: share.question,
+      project: p?.name ?? '',
+      section: note.title,
+      path: note.path,
+      text,
+      captured: note.captured,
+      ...(p ? { brief: shareBriefOf(p), repos: p.repos ?? [] } : {}),
+    },
+    share.atMs,
+  )
 }
 
 // The device's share sheet when there is one (pick the Claude app there), otherwise a copy. Cancelling the sheet is

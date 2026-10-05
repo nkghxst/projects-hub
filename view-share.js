@@ -54,7 +54,11 @@ export function renderSharePanel()         {
           ? `<label class="share-q"><span>Your question</span><input id="share-question" value="${esc(share.question)}" placeholder="For example: what's stopping this?" autocomplete="off"></label>`
           : ''
       }
-      <p class="muted small">This exact text leaves the hub for the app you choose${prompt.isCut ? ' (cut to fit, and it says where)' : ''}. Nothing is run or saved here; any answer stays in that app.</p>
+      <p class="muted small">This exact text leaves the hub for the app you choose${prompt.isCut ? ' (cut to fit, and it says where)' : ''}. Nothing is run or saved here; any answer stays in that app.${
+        share.kind === 'explain'
+          ? ' Explain keeps the app to this text alone.'
+          : " It includes the project's brief and the GitHub repositories its record mentions, and invites the app to look things up with its own tools (a GitHub connector, say), labelling what came from your notes and what it found."
+      }</p>
       <p id="share-size" class="small share-size">${esc(shareSummary(prompt))}</p>
       <pre id="share-text" class="share-text" tabindex="0">${shareTextHtml(prompt.text)}</pre>
       <div class="actions">
