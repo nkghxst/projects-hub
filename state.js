@@ -1,7 +1,7 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
 import { noteId, stableId } from './core.js'
-                                                                         
+                                                                                    
 import { defaultRepo } from './source.js'
                                                                            
 
@@ -128,6 +128,8 @@ export const state = {
   nextMore: false,
   // The usage panel under the top bar.
   usageOpen: false,
+  // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
+  share: null                                                                                                           ,
   // Matches in whole records for the home's filter text (null until a search has run for it).
   searchHits: null                      ,
   searchFor: '',
@@ -185,9 +187,12 @@ export function changed() {
   redraw()
 }
 
+// Messages stay long enough to read: longer for longer text (a glossary meaning, say).
+let toastTimer                                           
 export function toast(text        ) {
   const el = document.getElementById('toast')               
   el.textContent = text
   el.classList.add('show')
-  setTimeout(() => el.classList.remove('show'), 2800)
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.remove('show'), Math.min(9000, 2800 + text.length * 40))
 }

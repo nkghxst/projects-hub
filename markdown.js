@@ -9,7 +9,54 @@ export function escapeHtml(text        )         {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-// Inline: code spans verbatim; elsewhere links, bold and italics.
+// Glossary terms (from memory/desktop/hub/glossary.md), explained on hover and on tap wherever they appear in text:
+// whole words only, never inside code, a tag or a link's address. A lower-case term ("baton") also matches with a
+// capital, as at the start of a sentence; anything else matches only as written.
+                                                            
+let terms = new Map              ()
+let termPattern                = null
+export function setGlossary(entries        ) {
+  terms = new Map(
+    entries.flatMap((e)                   => {
+      const capital = e.term.charAt(0).toUpperCase() + e.term.slice(1)
+      return e.term === e.term.toLowerCase() && capital !== e.term ? [[e.term, e], [capital, e]] : [[e.term, e]]
+    }),
+  )
+  const words = [...terms.keys()].sort((a, b) => b.length - a.length).map(t => escapeHtml(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  termPattern = words.length > 0 ? new RegExp(`(?<![\\w-])(${words.join('|')})(?![\\w-])`, 'g') : null
+}
+export const glossaryTerm = (term        ) => terms.get(term)
+
+// Terms already marked in the Markdown being rendered: only a term's first use in a section is marked.
+let marked                     = null
+
+function withTerms(html        )         {
+  if (!termPattern) return html
+  const pattern = termPattern
+  // Only the text between tags is touched, so attributes such as a link's address never change; nor is a link's
+  // label, where a tap would both follow the link and explain the term.
+  let inLink = false
+  return html
+    .split(/(<[^>]+>)/)
+    .map((part, i) => {
+      if (i % 2 === 1) {
+        if (/^<a\s/.test(part)) inLink = true
+        else if (part === '</a>') inLink = false
+        return part
+      }
+      if (inLink) return part
+      return part.replace(pattern, (word        ) => {
+        const t = terms.get(word.replace(/&amp;/g, '&'))
+        if (!t || marked?.has(t.term)) return word
+        marked?.add(t.term)
+        const label = `${t.term}${t.scope ? ` (${t.scope})` : ''}: ${t.meaning}`
+        return `<abbr class="term" tabindex="0" data-term="${escapeHtml(t.term)}" title="${escapeHtml(label)}">${word}</abbr>`
+      })
+    })
+    .join('')
+}
+
+// Inline: code spans verbatim; elsewhere links, bold and italics, then glossary terms.
 export function inline(text        , resolve              )         {
   return text
     .split('`')
@@ -26,14 +73,29 @@ export function inline(text        , resolve              )         {
       html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       html = html.replace(/(^|[\s(])\*([^*\s][^*]*)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
       html = html.replace(/(^|[\s(])_([^_\s][^_]*)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
-      return html
+      return withTerms(html)
     })
     .join('')
 }
 
 const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
 
+// Draws one section: a term is marked at its first use inside it, however many blocks or lines draw it.
+export function termsOnce   (draw         )    {
+  if (marked) return draw()
+  marked = new Set()
+  try {
+    return draw()
+  } finally {
+    marked = null
+  }
+}
+
 export function renderMarkdown(md        , resolve              )         {
+  return termsOnce(() => renderBlocks(md, resolve))
+}
+
+function renderBlocks(md        , resolve              )         {
   const lines = md.replace(/\r/g, '').split('\n')
   const out           = []
   let i = 0
@@ -72,7 +134,7 @@ export function renderMarkdown(md        , resolve              )         {
     } else if (trimmed.startsWith('>')) {
       const quote           = []
       while (i < lines.length && lines[i].trim().startsWith('>')) quote.push(lines[i++].trim().replace(/^>\s?/, ''))
-      out.push(`<blockquote>${renderMarkdown(quote.join('\n'), resolve)}</blockquote>`)
+      out.push(`<blockquote>${renderBlocks(quote.join('\n'), resolve)}</blockquote>`)
     } else if (LIST_ITEM.test(line)) {
       // Nested lists by indent; continuation lines join the item above.
       const items                                                      = []

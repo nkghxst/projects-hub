@@ -3,11 +3,14 @@
 // and capturing notes). Which one it is comes from whether the hub server answers.
 // This file draws the page and wires up events; views, state and actions live in their own modules.
 import { fmtStamp, pad } from './core.js'
-                                               
-import { escapeHtml as esc } from './markdown.js'
+                                                          
+import { escapeHtml as esc, glossaryTerm, setGlossary } from './markdown.js'
 import {
   clearDraft,
+  closeShare,
   connectGitHub,
+  copyShare,
+  currentShare,
   discardQueued,
   flushQueue,
   forgetToken,
@@ -21,6 +24,9 @@ import {
   saveSettings,
   sendHeldHere,
   setHandled,
+  setShareKind,
+  shareNow,
+  openShare,
   setDraftKind,
   setFilters,
   summarise,
@@ -101,6 +107,7 @@ function restoreFocus(snap                                  ) {
 }
 
 function render() {
+  setGlossary(state.data?.glossary ?? [])
   const focus = focusSnapshot()
   const isUsageFocused = (document.activeElement                      )?.dataset?.action === 'usage-toggle'
   const r = currentRoute()
@@ -152,7 +159,16 @@ function render() {
 }
 onChange(render)
 
+// A glossary term explains itself when tapped or chosen with Enter (hovering shows it too, on a desktop).
+function explainTerm(el                    ) {
+  const name = el?.dataset?.term
+  const t = name ? glossaryTerm(name) : undefined
+  if (t) toast(`${t.term}${t.scope ? ` (${t.scope})` : ''}: ${t.meaning}`)
+}
+
 document.addEventListener('click', async event => {
+  const term = (event.target               ).closest?.('.term')                      
+  if (term) explainTerm(term)
   const target = (event.target               ).closest('[data-action]')                      
   // A click anywhere outside the usage bar closes its panel.
   if (state.usageOpen && !(event.target               ).closest('#usagebar')) {
@@ -164,6 +180,12 @@ document.addEventListener('click', async event => {
   const value = target.dataset.value ?? ''
   if (action === 'machine') setFilters({ machine: value                       })
   else if (action === 'clear') setFilters({ machine: 'all', query: '' })
+  else if (action === 'share-open') openShare({ target: 'section', index: Number(value) })
+  else if (action === 'share-note') openShare({ target: 'note', note: value })
+  else if (action === 'share-kind') setShareKind(value             )
+  else if (action === 'share-send') await shareNow()
+  else if (action === 'share-copy') await copyShare()
+  else if (action === 'share-close') closeShare()
   else if (action === 'usage-toggle') {
     state.usageOpen = !state.usageOpen
     changed()
@@ -257,6 +279,12 @@ document.addEventListener('input', event => {
   else if (el.id === 'set-repo') state.settingsDraft.repo = el.value
   else if (el.id === 'set-token') state.settingsDraft.token = el.value
   else if (el.id === 'set-api') state.settingsDraft.apiBase = el.value
+  else if (el.id === 'share-question' && state.share) {
+    // The preview follows the question as it's typed, without redrawing the field.
+    state.share.question = el.value
+    const preview = document.getElementById('share-text')
+    if (preview) preview.textContent = currentShare()?.text ?? ''
+  }
 })
 
 // Another window of the app reset it, or changed or forgot the token: start again from what's saved now, so this
@@ -293,6 +321,10 @@ document.addEventListener('change', event => {
 
 document.addEventListener('keydown', event => {
   const el = event.target               
+  if (event.key === 'Enter' && el.classList?.contains('term')) {
+    explainTerm(el)
+    return
+  }
   // Ctrl+K (⌘K on a Mac): search, from anywhere.
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()

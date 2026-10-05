@@ -3,12 +3,13 @@
 // readable or as-written layout, with summaries where the desktop can write them, and its recent edit history.
 import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
                                                             
-import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
+import { escapeHtml as esc, inline, renderMarkdown, termsOnce } from './markdown.js'
                                                  
 import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, providerTag, queuedFor } from './parts.js'
 import { captureHref, recordHref } from './routes.js'
                                                                 
 import { isPinned, state } from './state.js'
+import { renderSharePanel } from './view-share.js'
 
 function rowHtml(r     , resolve              )         {
   if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
@@ -103,6 +104,10 @@ function catchUpPrompt(p         , source      , worktreeRoot        )         {
 // open; a closed section keeps a one-line note that it has one, so older summaries don't compete with the current
 // answer. The heading's button says whether the section is open and which content it controls.
 function sectionHtml(s             , i        , isCurrent         , resolve              , md                          )         {
+  return termsOnce(() => drawSection(s, i, isCurrent, resolve, md))
+}
+
+function drawSection(s             , i        , isCurrent         , resolve              , md                          )         {
   const isOpen = state.open.has(String(i))
   const isPending = Boolean(s.hash) && state.pending.has(s.hash ?? '')
   const canSummarise = Boolean(state.source?.summarise) && Boolean(s.hash)
@@ -124,9 +129,11 @@ function sectionHtml(s             , i        , isCurrent         , resolve     
       <div class="section-bar">
         <h3 class="section-title"><button class="section-head" data-action="section" data-value="${i}" aria-expanded="${isOpen}" aria-controls="${bodyId}">${isOpen ? '▾' : '▸'} ${esc(s.title)}</button></h3>
         ${canSummarise && !summary && !isPending ? `<button class="link muted" data-action="summarise" data-value="${i}">✦ Summarise</button>` : ''}
+        <button class="link muted" data-action="share-open" data-value="${i}" title="Share this section to Claude, or another app">↗ Share</button>
         ${isPending ? '<span class="muted">✦ Summarising… (can take a minute)</span>' : ''}
         ${isChanged ? '<span class="changed-badge">changed since you last looked</span>' : ''}
       </div>
+      ${state.share?.target === 'section' && state.share.index === i ? renderSharePanel() : ''}
       <div id="${bodyId}">
         ${summaryHtml}
         ${isOpen ? (s.body === '' ? '<p class="muted">Empty section.</p>' : state.layout === 'readable' ? `<div class="rows">${rowsHtml(s.body, resolve)}</div>` : md(s.body)) : ''}
@@ -163,7 +170,7 @@ export function renderRecord(doc            , data             )         {
         ? `<div class="meta">${dot(p.machine)} ${machineName(p.machine)} record · checkpoint ${p.checkedMs !== null ? `${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : 'not dated'}
             · edited ${p.editedMs !== null ? `${esc(fmtStamp(p.editedMs, now))} on ${esc(p.editedOn)}` : 'unknown'} ${providerTag(p)}</div>
            ${p.flags.length > 0 ? `<div class="chips">${chips(p)}</div>` : ''}
-           ${briefHtml(p, resolve)}`
+           ${termsOnce(() => briefHtml(p, resolve))}`
         : doc.next || doc.readFirst
           ? `<section class="card accent">
               ${doc.next ? `<div class="label strong">Next</div>${md(doc.next)}` : ''}

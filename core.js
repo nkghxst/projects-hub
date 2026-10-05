@@ -1238,6 +1238,81 @@ export function searchRecords(texts                        , query        , nowM
   return hits.sort(byRank).slice(0, limit)
 }
 
+// ---------- sharing to Claude (or any app): a prepared prompt around exact quoted text ----------
+
+// What leaves the hub when the owner shares a section or an idea: a short instruction, where the text came from, and the
+// text itself, verbatim. Nothing is run or saved here; the app he picks does the rest. The instructions carry the
+// hub's rules: only the quoted text, unknowns said as unknown, no invented numbers, quotes for facts.
+                                                     
+                          
+                 
+                 
+                  
+                                           
+                 
+              
+              
+                   
+                   
+ 
+export const SHARE_LIMIT = 12_000
+
+export function sharePrompt(input            , nowMs        )                                                  {
+  const isCut = input.text.length > SHARE_LIMIT
+  const quoted = isCut ? `${input.text.slice(0, SHARE_LIMIT)}\n[… cut here: the rest is in the file named above]` : input.text
+  const when = new Date(nowMs)
+  const stamp = `${when.getDate()} ${MON[when.getMonth()]} ${when.getFullYear()} ${pad(when.getHours())}:${pad(when.getMinutes())}`
+  const machine = input.machine ? `${input.machine[0].toUpperCase()}${input.machine.slice(1)} record, file` : 'File'
+  const from =
+    input.kind === 'develop'
+      ? `Idea${input.captured ? ` (captured ${input.captured})` : ''}: "${input.section}", file ${input.path}, as shown in my projects hub on ${stamp}.`
+      : `From: ${input.project || input.path} — "${input.section}"\n${machine} ${input.path}, as shown in my projects hub on ${stamp}.`
+  const rules = "If the text doesn't say something, call it unknown rather than guessing, and don't invent numbers."
+  const ask =
+    input.kind === 'explain'
+      ? [
+          'Please explain this part of my project notes in plain English, briefly.',
+          '- Say what it means and where the work stands, using only the text below.',
+          '- Define any jargon or abbreviations the first time they come up.',
+          `- ${rules}`,
+          "- Quote the line you're relying on for each fact.",
+        ]
+      : input.kind === 'ask'
+        ? [
+            'Answer my question using only the text below from my project notes.',
+            `- Quote the lines you rely on. ${rules}`,
+            '',
+            `Question: ${(input.question ?? '').trim() || '(type your question here)'}`,
+          ]
+        : [
+            'Help me turn this idea into a first small experiment I could try.',
+            '- Give the smallest useful version, the questions to answer first, the first three steps, and the risks or costs.',
+            "- Keep your suggestions clearly separate from what the idea itself says.",
+            `- ${rules}`,
+          ]
+  const title = input.kind === 'explain' ? `Explain: ${input.section}` : input.kind === 'ask' ? `Question about: ${input.section}` : `Develop: ${input.section}`
+  return { title: title.slice(0, 120), text: `${ask.join('\n')}\n\n${from}\n\n"""\n${quoted}\n"""\n`, isCut }
+}
+
+// ---------- glossary: short meanings for recurring terms, explained on tap ----------
+
+// memory/desktop/hub/glossary.md, written by the owner or an agent (curated, never generated). One entry per list item:
+//   - **TERM** (optional scope) — meaning. Source: path/of/the/record/that/defines/it.md
+// The scope says where a term means this (a project reusing an acronym); the source is where the meaning comes from.
+                                                                                            
+export const GLOSSARY_PATH = 'memory/desktop/hub/glossary.md'
+
+export function parseGlossary(md        )                  {
+  const out                  = []
+  for (const line of md.replace(/\r/g, '').split('\n')) {
+    const m = line.match(/^\s*[-*]\s+\*\*([^*]{1,40})\*\*\s*(?:\(([^)]{1,60})\))?\s*[—–-]\s*(.+)$/)
+    if (!m) continue
+    const [meaning, source = ''] = m[3].split(/\s*Source\s*:\s*/i)
+    if (meaning.trim()) out.push({ term: m[1].trim(), scope: (m[2] ?? '').trim(), meaning: textOf(meaning.trim()), source: source.trim() })
+  }
+  return out
+}
+
 // ---------- usage: readings of each account's rate-limit windows, never estimates ----------
 
 // Three accounts: Claude on each machine (separate accounts) and one Codex account used on both.

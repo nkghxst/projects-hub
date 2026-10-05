@@ -5,6 +5,7 @@ import { escapeHtml as esc, inline, renderMarkdown } from './markdown.js'
                                                  
 import { recordHref } from './routes.js'
 import { deviceName, settings, state, UNKNOWN_DEST } from './state.js'
+import { renderSharePanel } from './view-share.js'
                                         
 
 export const dot = (tone      , glyph = '●') => `<span class="mark" style="color:${HEX[tone]}">${glyph}</span>`
@@ -140,7 +141,9 @@ export function noteCard(n               , isQueued         , hold              
             : ''
         }
         <button class="link muted" data-action="copy" data-text="${esc(`${sent.title}\n\n${sent.body}${sent.source ? `\n\n${sent.source}` : ''}`)}">Copy</button>
-      </div>`
+        <button class="link muted" data-action="share-note" data-value="${esc(sent.path)}" title="Share to Claude, or another app">↗ Share</button>
+      </div>
+      ${state.share?.target === 'note' && state.share.note === sent.path ? renderSharePanel() : ''}`
     : ''
   return `
     <article class="card note ${isQueued ? 'queued' : ''}">

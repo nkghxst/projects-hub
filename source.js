@@ -9,6 +9,7 @@ import {
   dayKeyOf,
   DESKTOP_NOTES_DIR,
   formatHandledMark,
+  GLOSSARY_PATH,
   MACHINES,
   MARK_DIRS,
   NOTE_DIRS,
@@ -16,6 +17,7 @@ import {
   ownerOf,
   pairProjects,
   parseDoc,
+  parseGlossary,
   parseHandledMark,
   parseHosts,
   parseIndexRows,
@@ -26,7 +28,7 @@ import {
   searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                                              
+                                                                                                                                             
 
                     
              
@@ -38,6 +40,8 @@ import {
                         
                                                              
                        
+                                                                         
+                            
  
                                                                                                
                                                                             
@@ -185,6 +189,7 @@ export function destinationOf(settings                )         {
                                                                               
                         
                        
+                            
                
  
 
@@ -269,6 +274,7 @@ export function githubSource(settings                , signal              )    
       wrap([
         `sync: ${blob('sync.sh')}`,
         `profile: ${blob('profile.md')}`,
+        `glossary: ${blob(GLOSSARY_PATH)}`,
         ...MACHINES.map(m => `usage_${m}: ${blob(`memory/${m}/hub/usage.md`)}`),
         ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`),
       ].join('\n')),
@@ -285,6 +291,7 @@ export function githubSource(settings                , signal              )    
     // The owner's name, so the home can find what waits on them (kept out of the published app).
     const owner = ownerOf(first.profile?.text ?? '')
     const usage = MACHINES.flatMap(m => parseUsageSnapshot(first[`usage_${m}`]?.text ?? '')?.readings ?? [])
+    const glossary = parseGlossary(first.glossary?.text ?? '')
 
     const records = Object.keys(texts).filter(p => /^memory\/(?:desktop|laptop)\/projects\//.test(p))
     const edits                         = {}
@@ -335,7 +342,7 @@ export function githubSource(settings                , signal              )    
     )
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, glossary, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -355,7 +362,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published }
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary }
     },
     record: async path => {
       const s = await current()
@@ -457,7 +464,7 @@ export function snapshotAge(settings                )                {
 export function snapshotProjects(settings                )              {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

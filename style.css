@@ -318,3 +318,17 @@ details.evidence > summary { list-style: none; cursor: pointer; padding-left: 1.
 @media (max-width: 600px) { .card.section { scroll-margin-top: 104px; } }
 .changed-note { font-size: 13px; color: var(--link); margin: 6px 0; }
 .warning-text { color: var(--danger); }
+
+/* The share panel: the exact text that will leave the hub, in a scrollable box, with Share and Copy. */
+.share-panel { margin: 8px 0; border-color: var(--accent); }
+.share-head { display: flex; align-items: baseline; gap: 8px; }
+.share-head .link { margin-left: auto; }
+.share-q { display: grid; gap: 4px; margin: 8px 0; font-weight: 600; }
+.share-q input { width: 100%; font-weight: 400; }
+.share-text { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; margin: 6px 0; }
+
+/* Glossary terms: a quiet dotted underline; hover or tap explains them. */
+abbr.term { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+abbr.term:focus-visible { outline-offset: 1px; }
+#toast { max-width: min(520px, calc(100vw - 32px)); }
+@media (max-width: 600px) { #toast { left: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); } }

@@ -1,7 +1,7 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf } from './core.js'
-                                                                   
+import { formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+                                                                              
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
@@ -249,6 +249,7 @@ function noteRecordSeen() {
 
 export async function route() {
   const r = currentRoute()
+  state.share = null
   if (r.name !== 'record' || r.path !== state.seenVisit) {
     state.seenVisit = ''
     state.seenVersion = ''
@@ -382,6 +383,70 @@ export async function setHandled(note        , handled         ) {
     changed()
   } catch (error) {
     toast(`Couldn't save that: ${errorText(error)}`)
+  }
+}
+
+// ---------- sharing a section or a note to Claude ----------
+
+export function openShare(target                                                               ) {
+  state.share = { ...target, kind: target.target === 'section' ? 'explain' : 'develop', question: '' }
+  changed()
+}
+export function closeShare() {
+  state.share = null
+  changed()
+}
+export function setShareKind(kind           ) {
+  if (state.share) state.share.kind = kind
+  changed()
+}
+
+// The prompt the panel shows and the share sends, built from what's on screen.
+export function currentShare()                                                         {
+  const share = state.share
+  if (!share) return null
+  if (share.target === 'section') {
+    const doc = state.record
+    const section = doc?.sections[share.index ?? -1]
+    if (!doc || !section) return null
+    const p = state.data?.projects.find(x => x.file === doc.path)
+    return sharePrompt(
+      { kind: share.kind, question: share.question, project: p?.name ?? doc.title, machine: p?.machine, section: section.title, path: doc.path, text: section.body },
+      Date.now(),
+    )
+  }
+  const note = state.notes.find(n => n.path === share.note)
+  if (!note) return null
+  const text = `${note.body}${note.source ? `\n\nLink: ${note.source}` : ''}`
+  return sharePrompt({ kind: share.kind, question: share.question, project: '', section: note.title, path: note.path, text, captured: note.captured }, Date.now())
+}
+
+// The device's share sheet when there is one (pick the Claude app there), otherwise a copy. Cancelling the sheet is
+// quiet. Only the title and text are handed over, never a web address with the text in it.
+export async function shareNow() {
+  const prompt = currentShare()
+  if (!prompt) return
+  const nav = navigator                                                                                      
+  if (typeof nav.share === 'function') {
+    try {
+      await nav.share({ title: prompt.title, text: prompt.text })
+      toast('Shared. Any answer is in the app you chose; nothing is saved here.')
+      return
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return
+      // Some browsers refuse sharing here: copy instead.
+    }
+  }
+  await copyShare()
+}
+export async function copyShare() {
+  const prompt = currentShare()
+  if (!prompt) return
+  try {
+    await navigator.clipboard.writeText(prompt.text)
+    toast('Copied: paste it into Claude')
+  } catch {
+    toast("Couldn't copy here")
   }
 }
 
