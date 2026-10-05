@@ -1397,6 +1397,100 @@ export function searchRecords(texts                        , query        , nowM
   return hits.sort(byRank).slice(0, limit)
 }
 
+// ---------- mentioned elsewhere (I10) ----------
+
+// Where else a record comes up: sections of other records, and notes not already attached to it, that link to it (a
+// markdown link or a path that resolves to it) or name it (its short name, or its file name as words, whole words
+// only). Never the record itself, the other machine's record of the same project, or the index. Current sections
+// first, then links before names, then newer; at most three per record.
+                       
+              
+                                                                                     
+                 
+                      
+                 
+                           
+                      
+                 
+                    
+                       
+ 
+
+export function mentionNames(p                                )           {
+  const short = p.name.split(/ \(| \/ | [—–-] |:|,/)[0].trim().toLowerCase()
+  const base = (p.file.split('/').pop() ?? '').replace(/\.md$/, '').replace(/[-_]+/g, ' ').trim().toLowerCase()
+  return [...new Set([short, base])].filter(n => n.length >= 4)
+}
+
+export function mentionsOf(
+  target                                                   ,
+  texts                        ,
+  notes         = [],
+  nowMs = Date.now(),
+  limit = 20,
+)            {
+  const names = mentionNames(target)
+  const nameRe = names.length > 0 ? new RegExp(`(?<![\\w-])(?:${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\w-])`, 'i') : null
+  const baseName = target.file.split('/').pop() ?? ''
+  const pathRe = new RegExp(`(?:\\[([^\\]]*)\\]\\()?([\\w./~-]*${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'g')
+  // The words to highlight for a link to the target in this text, or null if it has none.
+  const linkIn = (from        , body        )                => {
+    const dir = from.split('/').slice(0, -1).join('/')
+    for (const m of body.matchAll(pathRe)) {
+      const raw = m[2].replace(/^~\/claude-profile\//, '')
+      const resolved = raw.startsWith('memory/') ? raw : resolvePath(dir, raw)
+      if (resolved === target.file) return (m[1] ?? m[2]).toLowerCase()
+    }
+    return null
+  }
+  const find = (from        , title        , body        )                                                => {
+    const link = linkIn(from, body)
+    if (link) return { how: 'link', term: link }
+    const name = nameRe ? textOf(`${title}\n${body}`).match(nameRe) : null
+    return name ? { how: 'name', term: name[0].toLowerCase() } : null
+  }
+  const excerpt = (title        , body        , term        ) => {
+    const fromBody = snippetAround(textOf(body), [term])
+    return fromBody.marks.length > 0 ? fromBody : snippetAround(textOf(`${title}\n${body}`), [term])
+  }
+  const rank = (a         , b         ) =>
+    Number(b.isCurrent) - Number(a.isCurrent) ||
+    Number(a.how === 'name') - Number(b.how === 'name') ||
+    Number(a.isNote) - Number(b.isNote) ||
+    (b.dateMs ?? -1) - (a.dateMs ?? -1)
+  const out            = []
+  for (const [path, text] of Object.entries(texts)) {
+    if (!/^memory\/(?:desktop|laptop)\/projects\/[^/]+\.md$/.test(path) || path.endsWith('/INDEX.md')) continue
+    if (path === target.file || path === target.pairFile) continue
+    const doc = parseDoc(path, text)
+    const parts = [{ index: -1, title: doc.title, body: doc.preamble }, ...doc.sections.map((s, index) => ({ index, title: s.title, body: s.body }))]
+    const found            = []
+    for (const part of parts) {
+      const hit = find(path, part.title, part.body)
+      if (!hit) continue
+      const dates = datesIn(part.title, nowMs)
+      found.push({
+        path,
+        section: part.index,
+        sectionTitle: part.index === -1 ? 'Top of the record' : part.title,
+        ...excerpt(part.title, part.body, hit.term),
+        how: hit.how,
+        isNote: false,
+        isCurrent: CURRENT_TITLE.test(part.title),
+        dateMs: dates.length > 0 ? Math.max(...dates) : null,
+      })
+    }
+    out.push(...found.sort(rank).slice(0, 3))
+  }
+  for (const n of notes) {
+    if (n.project === target.file) continue
+    const hit = find(n.path, n.title, `${n.body}\n${n.source}`)
+    if (!hit) continue
+    out.push({ path: n.path, section: -1, sectionTitle: n.title, ...excerpt(n.title, n.body, hit.term), how: hit.how, isNote: true, isCurrent: false, dateMs: null })
+  }
+  return out.sort(rank).slice(0, limit)
+}
+
 // ---------- sharing to Claude (or any app): a prepared prompt around exact quoted text ----------
 
 // What leaves the hub when the owner shares a section or an idea: a short instruction, where the text came from, and the

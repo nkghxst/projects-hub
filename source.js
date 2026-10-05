@@ -10,6 +10,7 @@ import {
   DESKTOP_NOTES_DIR,
   formatHandledMark,
   GLOSSARY_PATH,
+  mentionsOf,
   MACHINES,
   MARK_DIRS,
   NOTE_DIRS,
@@ -28,7 +29,7 @@ import {
   searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                                                                                             
+                                                                                                                                                                                      
 
                     
              
@@ -73,6 +74,8 @@ import {
                                                    
                                                                                                       
                                                                                        
+                                                                                                       
+                                                 
  
 
 // An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
@@ -129,6 +132,7 @@ export function localSource()         {
     },
     ask: request => postHub           ('/api/ask', request),
     versions: path => getJson                                                 (`/api/versions?path=${encodeURIComponent(path)}`),
+    mentions: async path => (await getJson                         (`/api/mentions?path=${encodeURIComponent(path)}`)).mentions,
     mark: async (note, handled) => {
       const reply = await postHub                                                ('/api/mark', { note, handled })
       if (!reply.ok || typeof reply.atMs !== 'number') throw sourceError('other', reply.error ?? 'The hub refused the mark')
@@ -411,6 +415,12 @@ export function githubSource(settings                , signal              )    
     },
     notesDir: PHONE_DIR,
     search: async query => searchRecords((await current()).texts, query),
+    // Worked out from the saved copy, so it works offline too.
+    mentions: async path => {
+      const s = await current()
+      const p = projectsFrom(s).find(x => x.file === path)
+      return mentionsOf({ file: path, pairFile: p?.pairFile, name: p?.name ?? '' }, s.texts, s.notes)
+    },
     // A mark is a new small file in memory/phone/handled/, created like a note.
     mark: async (note, handled) => {
       const atMs = Date.now()

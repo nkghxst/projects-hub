@@ -81,6 +81,7 @@ export async function loadRecord(path        ) {
     state.recordDest = dest
     state.recordError = ''
     noteRecordSeen()
+    if (!isSameRecord) void loadMentions(path)
     if (isSameRecord) {
       state.open = new Set([...state.open].filter(k => Number(k) < record.sections.length))
     } else {
@@ -480,6 +481,26 @@ export async function copyShare(prompt = currentShare()) {
   } catch {
     toast("Couldn't copy here")
   }
+}
+
+// ---------- mentioned elsewhere ----------
+
+// Where else the open record comes up, fetched once per opening; a reply for another record or source is dropped.
+export async function loadMentions(path        ) {
+  const source = state.source
+  if (!source?.mentions) return
+  const generation = state.sourceGeneration
+  state.mentions = { path, status: 'loading', list: [] }
+  changed()
+  try {
+    const list = await source.mentions(path)
+    if (generation !== state.sourceGeneration || state.mentions?.path !== path) return
+    state.mentions = { path, status: 'done', list }
+  } catch {
+    if (generation !== state.sourceGeneration || state.mentions?.path !== path) return
+    state.mentions = { path, status: 'error', list: [] }
+  }
+  changed()
 }
 
 // ---------- picking a project up again ----------

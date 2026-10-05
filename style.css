@@ -378,3 +378,7 @@ a.cite:hover { text-decoration: underline; }
 .diff-line.del { background: rgba(218, 54, 51, 0.12); }
 .diff-line.del::before { content: "−"; }
 .diff-gap { padding: 1px 8px 1px 26px; }
+
+/* Mentioned elsewhere, at the foot of a record. */
+.mentions { margin: 16px 0; }
+.mentions .hit { margin-top: 6px; }

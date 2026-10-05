@@ -2,10 +2,10 @@
 // live work, actions and phone notes, then the full current checkpoint and the record's other sections, folded, in the
 // readable or as-written layout, with summaries where the desktop can write them, and its recent edit history.
 import { ageLabel, boldVerdicts, currentSectionIndex, fmtDay, fmtStamp, HEX, liveFor, notesBehind, readableRows, ROW_MARKS } from './core.js'
-                                                            
+                                                                     
 import { escapeHtml as esc, inline, renderMarkdown, termsOnce } from './markdown.js'
                                                  
-import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, providerTag, queuedFor } from './parts.js'
+import { chips, dot, linkResolver, liveBox, machineName, noteCard, notesFor, projectName, providerTag, queuedFor } from './parts.js'
 import { captureHref, recordHref } from './routes.js'
                                                                 
 import { isPinned, state } from './state.js'
@@ -75,6 +75,39 @@ function briefHtml(p         , resolve              )         {
         <dt>Read first</dt><dd>${p.readFirst ? `${inline(p.readFirst, resolve)}${p.isReadFirstQuoted ? ` ${src('quoted from the current checkpoint')}` : ''}` : 'Not stated.'}</dd>
       </dl>
       ${p.stateLine ? `<div class="muted small">Index row: ${inline(p.state, resolve)}</div>` : ''}
+    </section>`
+}
+
+// Where else this record comes up: other records' sections that link to it or name it, and notes about it that
+// aren't attached to it, each with its excerpt (escaped first, then the match marked).
+function mentionsHtml(path        )         {
+  const m = state.mentions
+  if (!m || m.path !== path) return ''
+  if (m.status === 'loading') return '<section class="mentions"><div class="label">Mentioned elsewhere</div><p class="muted small">Looking…</p></section>'
+  if (m.status === 'error') return ''
+  const marked = (x         ) => {
+    let html = ''
+    let at = 0
+    for (const [a, b] of x.marks) {
+      html += `${esc(x.snippet.slice(at, a))}<mark>${esc(x.snippet.slice(a, b))}</mark>`
+      at = b
+    }
+    return html + esc(x.snippet.slice(at))
+  }
+  return `
+    <section class="mentions"><div class="label">Mentioned elsewhere${m.list.length > 0 ? ` (${m.list.length})` : ''}</div>
+      ${
+        m.list.length === 0
+          ? '<p class="muted small">Not linked to or named in other records or notes.</p>'
+          : m.list
+              .map(
+                x => `<a class="hit" href="${x.isNote ? '#/inbox' : recordHref(x.path, x.section >= 0 ? x.section : undefined)}">
+                  <span class="hit-head"><strong>${esc(x.isNote ? x.sectionTitle : projectName(x.path))}</strong>
+                    <span class="muted small">${x.isNote ? 'a note' : esc(x.sectionTitle)} · ${x.how === 'link' ? 'links here' : 'names it'}</span></span>
+                  <span class="snippet">${marked(x)}</span></a>`,
+              )
+              .join('')
+      }
     </section>`
 }
 
@@ -235,6 +268,7 @@ export function renderRecord(doc            , data             )         {
            }`
         : doc.sections.map((s, i) => sectionHtml(s, i, i === current, resolve, md)).join('')
     }
+    ${mentionsHtml(doc.path)}
     ${
       doc.history.length > 0
         ? `<section class="history"><div class="label">Recent edits to this record</div>
