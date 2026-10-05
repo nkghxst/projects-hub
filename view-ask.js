@@ -41,8 +41,14 @@ function withCitations(html        , answer           )         {
 
 // A source by the project's name from the index, as the rest of the hub shows it, with the record's own heading
 // on hover (Codex M5 review: two names for one project).
+// A note is named by its title and the project it's about (its `project` is that record's path).
 function sourceName(s                              )         {
-  const name = state.data?.projects.find(p => p.file === s.path)?.name ?? s.project
+  const nameOf = (file        ) => state.data?.projects.find(p => p.file === file)?.name
+  if (isNote(s.path)) {
+    const about = s.project ? (nameOf(s.project) ?? s.project.split('/').pop()?.replace(/\.md$/, '')) : ''
+    return about ? `${s.title} (about ${about})` : s.title
+  }
+  const name = nameOf(s.path) ?? s.project
   return name ? `${name} — ${s.title}` : s.title
 }
 
