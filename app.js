@@ -21,6 +21,7 @@ import {
   runAsk,
   setAskKind,
   toggleAskPick,
+  useAskStarter,
   closeShare,
   connectGitHub,
   copyShare,
@@ -245,6 +246,7 @@ document.addEventListener('click', async event => {
   else if (action === 'ask-note') askFromNote(value)
   else if (action === 'ask-pick') toggleAskPick(Number(value))
   else if (action === 'ask-kind') setAskKind(value           )
+  else if (action === 'ask-starter') useAskStarter(Number(value))
   else if (action === 'ask-run') await runAsk()
   else if (action === 'ask-copy') await copyAnswer()
   else if (action === 'term-close') closeTerm()

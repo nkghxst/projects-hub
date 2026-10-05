@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -670,6 +670,13 @@ export function toggleAskPick(index        ) {
   changed()
 }
 // The question and kind can't change under an answer being written (Codex M5 review): the answer is for what was sent.
+// A starting question fills the question box (still editable); not while an answer is being written.
+export function useAskStarter(index        ) {
+  const starter = ASK_STARTERS[index]
+  if (!state.ask || !starter || state.ask.status === 'running') return
+  state.ask.question = starter.question
+  changed()
+}
 export function setAskKind(kind         ) {
   if (state.ask && state.ask.status !== 'running') state.ask.kind = kind
   changed()

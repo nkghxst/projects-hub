@@ -2,7 +2,7 @@
 // answered once by an isolated run with the desktop's Claude login. The answer names the model that wrote it, links each
 // citation to its section, flags citations to sources that weren't sent, lists what was left out, and shows exactly
 // what was sent. Nothing is saved. The phone has no assistant: it shares to the Claude app instead.
-import { fmtStamp } from './core.js'
+import { ASK_STARTERS, fmtStamp } from './core.js'
                                           
 import { escapeHtml as esc, renderMarkdown } from './markdown.js'
 import { recordHref } from './routes.js'
@@ -112,6 +112,13 @@ export function renderAsk()         {
           .map(([k, label]) => `<button type="button" data-action="ask-kind" data-value="${k}" class="${ask.kind === k ? 'on' : ''}" aria-pressed="${ask.kind === k}"${isRunning ? ' disabled' : ''}>${label}</button>`)
           .join('')}
       </div>
+      ${
+        ask.kind === 'answer'
+          ? `<div class="ask-starters" aria-label="Starting questions">${ASK_STARTERS.map(
+              (s, i) => `<button type="button" class="chip-button" data-action="ask-starter" data-value="${i}"${isRunning ? ' disabled' : ''}>${esc(s.label)}</button>`,
+            ).join('')}</div>`
+          : ''
+      }
       <label class="share-q"><span>${ask.kind === 'answer' ? 'Your question' : 'Anything in particular? (optional)'}</span>
         <input id="ask-question" value="${esc(ask.question)}" placeholder="${ask.kind === 'answer' ? 'For example: which projects touch the MOTU?' : 'For example: keep it under an evening'}" autocomplete="off" maxlength="500"${isRunning ? ' disabled' : ''}></label>
       <fieldset class="ask-sources"><legend>Sources: ${on} of ${ask.picks.length} ticked</legend>
