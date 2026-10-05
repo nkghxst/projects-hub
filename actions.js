@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, sectionHash, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, currentSectionIndex, fmtStamp, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                   
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -112,6 +112,7 @@ function replaceSource(next               ) {
   state.ask = null
   state.share = null
   state.term = null
+  state.changes = {}
   state.data = null
   state.notes = []
   state.record = null
@@ -477,6 +478,50 @@ export async function copyShare(prompt = currentShare()) {
   } catch {
     toast("Couldn't copy here")
   }
+}
+
+// ---------- catch-up: what changed since this device last looked ----------
+
+// Fetches the record's recent saved versions, finds the one this device last saw, and works out what changed since.
+// A second call hides it again.
+export async function showChanges(file        ) {
+  const open = state.changes[file]
+  if (open?.isOpen) {
+    open.isOpen = false
+    return changed()
+  }
+  const source = state.source
+  const p = state.data?.projects.find(x => x.file === file)
+  if (!source?.versions || !p) return
+  state.changes[file] = { isOpen: true, status: 'loading' }
+  changed()
+  const generation = state.sourceGeneration
+  try {
+    const { current, versions } = await source.versions(file)
+    if (generation !== state.sourceGeneration || !state.changes[file]?.isOpen) return
+    const { index, isExact } = seenVersion(versions, seenPrints(file) ?? {})
+    const base = versions[index]
+    state.changes[file] = base
+      ? { isOpen: true, status: 'done', base, isExact, result: recordChanges(base.text, current ?? versions[0].text, state.data?.owner ?? '') }
+      : { isOpen: true, status: 'done' }
+  } catch (error) {
+    if (generation !== state.sourceGeneration) return
+    state.changes[file] = { isOpen: true, status: 'error', error: `Couldn't fetch the saved versions: ${errorText(error)}` }
+  }
+  changed()
+}
+
+// Counts the record's current version as seen on this device, as opening it does.
+export function markChangeSeen(file        ) {
+  const p = state.data?.projects.find(x => x.file === file)
+  if (p) markSeen(file, p.prints)
+  delete state.changes[file]
+  changed()
+}
+export function markAllChangesSeen() {
+  for (const p of state.data?.projects ?? []) if (p.file) markSeen(p.file, p.prints)
+  state.changes = {}
+  changed()
 }
 
 // ---------- the assistant (desktop) ----------

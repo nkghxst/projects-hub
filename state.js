@@ -1,11 +1,20 @@
 // The hub UI's shared state, the phone's settings and queue, and the one hook everything uses to ask for a redraw:
 // app.ts registers the renderer with onChange(), and views and actions call changed() instead of importing it.
 import { noteId, stableId } from './core.js'
-                                                                                                                 
+                                                                                                                                         
 import { defaultRepo } from './source.js'
                                                                            
 
                                                                              
+// The catch-up page's comparison for one record: shown or not, and what the saved versions gave.
+                            
+                 
+                                      
+                        
+                
+                   
+                
+ 
                         
                
               
@@ -139,6 +148,8 @@ export const state = {
   usageOpen: false,
   // The share panel, when open: for a record section (by index) or a note (by path), and what to ask.
   share: null                                                                                                                         ,
+  // The catch-up page's comparisons, by record file.
+  changes: {}                                ,
   // The glossary term whose explanation is open (dismissed with its close button, Escape, or a page change).
   term: null                 ,
   // The assistant (desktop): what it was opened from, the sources (each can be unticked), the question and the answer.

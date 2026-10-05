@@ -363,3 +363,18 @@ a.cite:hover { text-decoration: underline; }
 /* Narrow phones: three usage readings fit beside the logo. An old reading is dimmed; its age is in the panel and the
    spoken label (Codex M5 review). */
 @media (max-width: 420px) { .brand-name { display: none; } .u-age { display: none; } .u.stale { opacity: 0.6; } .usage-toggle { gap: 7px; padding: 3px 7px; } }
+
+/* Catch-up: what changed since this device last looked. */
+.changes-banner { display: block; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--card); font-weight: 600; text-decoration: none; }
+.change-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.change-detail { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.change-section h4 { margin: 10px 0 4px; font-size: 14px; }
+.change-waits { margin: 6px 0; }
+.diff { font-size: 13px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.diff-line { display: block; padding: 1px 8px 1px 26px; position: relative; white-space: pre-wrap; overflow-wrap: anywhere; text-decoration: none; }
+.diff-line::before { position: absolute; left: 8px; color: var(--muted); }
+.diff-line.add { background: rgba(46, 160, 67, 0.14); }
+.diff-line.add::before { content: "+"; }
+.diff-line.del { background: rgba(218, 54, 51, 0.12); }
+.diff-line.del::before { content: "−"; }
+.diff-gap { padding: 1px 8px 1px 26px; }

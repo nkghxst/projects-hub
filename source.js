@@ -28,7 +28,7 @@ import {
   searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                                                                                    
+                                                                                                                                                                             
 
                     
              
@@ -42,6 +42,8 @@ import {
                        
                                                                          
                             
+                                                                                       
+                
  
                                                                                                
                                                                             
@@ -69,6 +71,8 @@ import {
                                                                                                                   
                                                                                  
                                                    
+                                                                                                      
+                                                                                       
  
 
 // An error the views can explain: 'auth' (token refused), 'offline' (no connection), 'conflict' (a different file is
@@ -124,6 +128,7 @@ export function localSource()         {
       return reply.result ?? 'created'
     },
     ask: request => postHub           ('/api/ask', request),
+    versions: path => getJson                                                 (`/api/versions?path=${encodeURIComponent(path)}`),
     mark: async (note, handled) => {
       const reply = await postHub                                                ('/api/mark', { note, handled })
       if (!reply.ok || typeof reply.atMs !== 'number') throw sourceError('other', reply.error ?? 'The hub refused the mark')
@@ -139,6 +144,9 @@ export function localSource()         {
     },
   }
 }
+
+// How many saved versions of a record the catch-up view looks back through.
+const VERSIONS_MAX = 12
 
 // ---------- GitHub (the phone) ----------
 
@@ -366,7 +374,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary }
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, owner: s.owner }
     },
     record: async path => {
       const s = await current()
@@ -388,6 +396,19 @@ export function githubSource(settings                , signal              )    
       return { ...parseDoc(path, text), history }
     },
     notes: async () => (await current()).notes,
+    // The last saved versions of a record and their text, in one request; "now" is the saved copy.
+    versions: async path => {
+      const s = await current()
+      const v = await graphql                                                                                                                                                                                 (
+        wrap(
+          `defaultBranchRef { target { ... on Commit { v: history(first: ${VERSIONS_MAX}, path: ${JSON.stringify(path)}) { nodes { oid committedDate messageHeadline file(path: ${JSON.stringify(path)}) { object { ... on Blob { text } } } } } } } }`,
+        ),
+      )
+      const versions = (v.defaultBranchRef?.target.v.nodes ?? [])
+        .filter(n => typeof n.file?.object?.text === 'string')
+        .map(n => ({ oid: n.oid, atMs: Date.parse(n.committedDate), by: commitBy(n.messageHeadline, s.hosts), text: n.file?.object?.text ?? '' }))
+      return { current: s.texts[path] ?? versions[0]?.text ?? null, versions }
+    },
     notesDir: PHONE_DIR,
     search: async query => searchRecords((await current()).texts, query),
     // A mark is a new small file in memory/phone/handled/, created like a note.
@@ -468,7 +489,7 @@ export function snapshotAge(settings                )                {
 export function snapshotProjects(settings                )              {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, owner: s.owner } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

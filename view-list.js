@@ -7,6 +7,7 @@ import { chips, dot, linkResolver, liveBox, machineName, notesFor, projectName, 
 import { recordHref } from './routes.js'
                                        
 import { changeOf } from './seen.js'
+import { changedRecords } from './view-changes.js'
 import { isPinned, state } from './state.js'
 
 const GROUPS                                             = [
@@ -67,6 +68,12 @@ function decisions(all           , now        )         {
         .join('')}
       ${help}
     </section>`
+}
+
+// A way into the catch-up page when anything changed since this device last looked.
+function catchUp()         {
+  const n = changedRecords().length
+  return n === 0 ? '' : `<a class="changes-banner" href="#/changes">${n} record${n === 1 ? '' : 's'} changed since you last looked · Catch up →</a>`
 }
 
 function nextActions(list           , now        )         {
@@ -206,7 +213,8 @@ export function renderList(data      , width        )         {
     ${
       f.query.trim().length >= 2
         ? searchResults(f.query, now)
-        : `${decisions(all, now)}
+        : `${catchUp()}
+           ${decisions(all, now)}
            ${nextActions(projects, now)}`
     }
     ${f.query.trim().length < 2 && pinned.length > 0 ? `<section class="group pinned"><h2 class="home-h">Pinned</h2>${pinned.map(row).join('')}</section>` : ''}

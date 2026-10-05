@@ -322,6 +322,109 @@ export function printsOf(doc                                                    
 }
 export const sectionPrints = (record        ) => printsOf(parseDoc('', record))
 
+// ---------- catch-up: what changed in a record since this device last looked ----------
+
+// A saved version of a record (a commit that touched it), newest first in any list.
+                                                                             
+                                                              
+// `was`: the old title, when a section was retitled (a checkpoint's new date, say) rather than replaced.
+                                                                                                                                  
+
+// A title without its date, time or note: "Current checkpoint — 5 Oct (Codex, laptop)" is "current checkpoint". A
+// section removed and one added with the same base title are one section retitled, the usual way a checkpoint moves on.
+export function baseTitle(title        )         {
+  const t = title.toLowerCase().trim()
+  const cut = t.search(/ [—–-] |\(|,/)
+  const base = (cut === -1 ? t : t.slice(0, cut)).replace(/[:\s]+$/, '').trim()
+  return base || t
+}
+                                                                                                       
+
+// A record's parts under the same keys as printsOf, with their titles and text.
+function partsOf(text        )                                               {
+  const doc = parseDoc('', text)
+  const out = new Map                                         ()
+  if (doc.preamble.trim()) out.set(TOP_PRINT, { title: 'Top of the record', body: doc.preamble })
+  const seen = new Map                ()
+  for (const s of doc.sections) {
+    const title = s.title.trim().toLowerCase()
+    const n = (seen.get(title) ?? 0) + 1
+    seen.set(title, n)
+    out.set(n === 1 ? title : `${title} (${n})`, { title: s.title.trim(), body: s.body })
+  }
+  return out
+}
+
+const contentLines = (body        ) => body.replace(/\r/g, '').split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '')
+
+// Lines removed, added and kept between two versions of a section (longest common subsequence). A section too big to
+// compare line by line counts as replaced: every old line out, every new line in.
+export function lineDiff(a          , b          )             {
+  if (a.length * b.length > 1_000_000) return [...a.map(text => ({ kind: '-'         , text })), ...b.map(text => ({ kind: '+'         , text }))]
+  const lcs             = Array.from({ length: a.length + 1 }, () => new Array        (b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+  const out             = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      out.push({ kind: '=', text: a[i] })
+      i++
+      j++
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) out.push({ kind: '-', text: a[i++] })
+    else out.push({ kind: '+', text: b[j++] })
+  }
+  while (i < a.length) out.push({ kind: '-', text: a[i++] })
+  while (j < b.length) out.push({ kind: '+', text: b[j++] })
+  return out
+}
+
+// What changed between two versions of a record: each changed, new or removed part with its lines, and the waits on
+// the owner that appeared or are no longer listed (possible ones marked as such, as the brief shows them).
+export function recordChanges(before        , after        , owner        )                {
+  const old = partsOf(before)
+  const now = partsOf(after)
+  const gone = [...old].filter(([key]) => !now.has(key))
+  const sections                  = []
+  for (const [key, part] of now) {
+    const was = old.get(key)
+    if (was) {
+      if (stableId(was.body) !== stableId(part.body)) sections.push({ key, title: part.title, kind: 'changed', lines: lineDiff(contentLines(was.body), contentLines(part.body)) })
+      continue
+    }
+    // New under this title: retitled from a removed section with the same base title, or genuinely new.
+    const at = gone.findIndex(([, g]) => baseTitle(g.title) === baseTitle(part.title))
+    if (at !== -1) {
+      const [[, g]] = gone.splice(at, 1)
+      sections.push({ key, title: part.title, was: g.title, kind: 'changed', lines: lineDiff(contentLines(g.body), contentLines(part.body)) })
+    } else sections.push({ key, title: part.title, kind: 'added', lines: contentLines(part.body).map(text => ({ kind: '+', text })) })
+  }
+  for (const [key, part] of gone) sections.push({ key, title: part.title, kind: 'removed', lines: contentLines(part.body).map(text => ({ kind: '-', text })) })
+  const waits = (text        ) => recordFacts(text, '', owner).waits.map(w => (w.isStated ? w.text : `possibly: ${w.text}`))
+  const was = waits(before)
+  const is = waits(after)
+  return { sections, waitsAdded: is.filter(w => !was.includes(w)), waitsCleared: was.filter(w => !is.includes(w)) }
+}
+
+// Which saved version this device last saw: the newest whose every part matches what it remembers. A device can have
+// seen a state that was never saved on its own (mid-edit, before a sync); then the version sharing the most parts is
+// the closest, and says so. Nothing in common: -1.
+export function seenVersion(versions           , seen                        )                                      {
+  const keys = Object.keys(seen)
+  let best = -1
+  let bestScore = 0
+  for (let i = 0; i < versions.length; i++) {
+    const prints = sectionPrints(versions[i].text)
+    const same = keys.filter(k => prints[k] === seen[k]).length
+    if (same === keys.length && keys.length === Object.keys(prints).length) return { index: i, isExact: true }
+    if (same > bestScore) {
+      best = i
+      bestScore = same
+    }
+  }
+  return { index: best, isExact: false }
+}
+
 // One `%ct<TAB>%s` line.
 export function parseCommit(line        , hosts        = {})         {
   const tab = line.indexOf('\t')
@@ -745,9 +848,41 @@ function sentencesOf(md        )           {
   return out
 }
 
+// A stated wait that only introduces a list ("**Waiting on <owner>:**" followed by items) takes the list as its text:
+// "Waiting on <owner>: a; b; c." Items nested under a list item, or a list straight after a plain line, belong to it.
+function foldStatedLists(md        , stated        )         {
+  const lines = md.replace(/\r/g, '').split('\n')
+  const out           = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const plain = line.replace(LIST_ITEM, '').trim()
+    const label = plain.match(stated)
+    if (!label || plain.slice(label[0].length).replace(/\*\*/g, '').trim() !== '') {
+      out.push(line)
+      continue
+    }
+    const isItem = LIST_ITEM.test(line)
+    const indent = line.length - line.trimStart().length
+    const items           = []
+    let j = i + 1
+    for (; j < lines.length && LIST_ITEM.test(lines[j]); j++) {
+      if (isItem && lines[j].length - lines[j].trimStart().length <= indent) break
+      items.push(lines[j].replace(LIST_ITEM, '').trim().replace(/[.;,]\s*$/, ''))
+    }
+    if (items.length === 0) {
+      out.push(line)
+      continue
+    }
+    out.push(`${line.trimEnd()} ${items.join('; ')}.`)
+    i = j - 1
+  }
+  return out.join('\n')
+}
+
 function findWaits(md        , where        , patterns              , isNext = false)         {
   if (patterns.anywhere.length === 0) return []
   const out         = []
+  if (patterns.stated) md = foldStatedLists(md, patterns.stated)
   for (const s of sentencesOf(md)) {
     let isStated = false
     if (patterns.stated?.test(s)) {

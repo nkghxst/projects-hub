@@ -7,6 +7,9 @@ import { fmtStamp, pad } from './core.js'
 import { escapeHtml as esc, glossaryEntries, setGlossary } from './markdown.js'
 import {
   clearDraft,
+  markAllChangesSeen,
+  markChangeSeen,
+  showChanges,
   askFromNote,
   askFromRecord,
   askFromSearch,
@@ -49,6 +52,7 @@ import { renderSetup } from './view-setup.js'
 import { renderUsageBar } from './view-usage.js'
 import { renderRecord } from './view-record.js'
 import { renderAsk } from './view-ask.js'
+import { renderChanges } from './view-changes.js'
 import { shareSummary, shareTextHtml } from './view-share.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
@@ -132,6 +136,8 @@ function render() {
     html = renderCapture()
   } else if (r.name === 'ask') {
     html = renderAsk()
+  } else if (r.name === 'changes') {
+    html = renderChanges()
   } else if (r.name === 'record') {
     html = state.recordError
       ? `<p class="error">${esc(state.recordError)}</p><p><a href="#/">← All projects</a></p>`
@@ -238,6 +244,9 @@ document.addEventListener('click', async event => {
   else if (action === 'ask-run') await runAsk()
   else if (action === 'ask-copy') await copyAnswer()
   else if (action === 'term-close') closeTerm()
+  else if (action === 'changes-show') await showChanges(value)
+  else if (action === 'changes-seen') markChangeSeen(value)
+  else if (action === 'changes-all-seen') markAllChangesSeen()
   else if (action === 'share-close') closeShare()
   else if (action === 'usage-toggle') {
     state.usageOpen = !state.usageOpen
