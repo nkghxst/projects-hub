@@ -46,7 +46,7 @@ function sourceName(s                              )         {
   const nameOf = (file        ) => state.data?.projects.find(p => p.file === file)?.name
   if (isNote(s.path)) {
     const about = s.project ? (nameOf(s.project) ?? s.project.split('/').pop()?.replace(/\.md$/, '')) : ''
-    return about ? `${s.title} (about ${about})` : s.title
+    return about ? `${s.title}, about ${about}` : s.title
   }
   const name = nameOf(s.path) ?? s.project
   return name ? `${name} — ${s.title}` : s.title
