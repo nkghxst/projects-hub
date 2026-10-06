@@ -1,6 +1,6 @@
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
-import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, declaredOwner, folderOf, sectionKeys, sectionPrints, STALE_DAYS_DEFAULT, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
+import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, currentMetadataText, declaredOwner, folderOf, recordFolders, sectionKeys, sectionPrints, STALE_DAYS_DEFAULT, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                            
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
@@ -553,8 +553,10 @@ export function pickUpContext()                                                {
   const p = doc ? state.data?.projects.find(x => x.file === doc.path) : undefined
   if (!doc || !p) return {}
   const current = doc.sections[currentSectionIndex(doc.sections.map(s => s.title))]
-  const owner = declaredOwner(`${p.state}\n${doc.preamble}\n${current?.body ?? ''}`)
-  const folder = folderOf(`${doc.preamble}\n${doc.sections.map(s => s.body).join('\n')}`)
+  // The record's own fields first (Folder (machine), Development owner), then its prose as before.
+  const fields = recordFolders(currentMetadataText(doc), p.machine)
+  const owner = fields.owner ?? declaredOwner(`${p.state}\n${doc.preamble}\n${current?.body ?? ''}`)
+  const folder = fields.folders[p.machine][0] ?? folderOf(`${doc.preamble}\n${doc.sections.map(s => s.body).join('\n')}`)
   return { ...(owner && owner !== p.machine ? { ownerElsewhere: owner } : {}), ...(folder ? { folder } : {}) }
 }
 

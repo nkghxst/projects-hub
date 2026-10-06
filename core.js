@@ -1688,6 +1688,40 @@ export function declaredOwner(text        )                 {
   return m ? (m[1].toLowerCase()           ) : null
 }
 
+// Where a project lives on each machine, from fields in the record's preamble or current checkpoint (Codex band
+// feedback, 6 Oct), never from historical prose:
+//   **Folder (desktop):** `C:\…`   **Worktrees (laptop):** `D:\…`   **Development owner:** laptop
+// Several fields may share a line (separated by ·), and a field may list several quoted paths. The older unqualified
+// forms (**Path:**, **Paths:**, **Folder:**, **Local checkout:**) count for the record's own machine, first path only
+// (a legacy Paths line often goes on to list worktrees in prose).
+                                                                                                                               
+
+// The value runs to the next field on the line (· or **) or the line's end, so several fields can share a line.
+const FOLDER_FIELD = /\*\*\s*(folders?|paths?|worktrees|local (?:path|checkout)|checkout)\s*(?:\((desktop|laptop)\))?\s*:\s*\*\*([^\n]*?)(?=\s·\s|\*\*|\n|$)/gi
+const trimPath = (p        ) => p.trim().replace(/[\\/]+$/, '')
+
+export function recordFolders(text        , recordMachine         )                {
+  const out                = { folders: { desktop: [], laptop: [] }, worktrees: { desktop: [], laptop: [] }, owner: null }
+  for (const m of text.matchAll(FOLDER_FIELD)) {
+    const kind = m[1].toLowerCase() === 'worktrees' ? 'worktrees' : 'folders'
+    const machine = (m[2]?.toLowerCase()                       ) ?? recordMachine
+    const value = m[3]
+    // Only quoted values that look like paths: prose quoting a field name ("`**Folder (desktop):**`") gives none.
+    const paths = [...value.matchAll(/`([^`]+)`/g)].map(p => trimPath(p[1])).filter(p => /^(?:[a-z]:[\\/]|~[\\/]|\/)/i.test(p))
+    const taken = m[2] ? paths : paths.slice(0, 1)
+    for (const p of taken) if (!out[kind][machine].includes(p)) out[kind][machine].push(p)
+  }
+  const owner = text.replace(/\*\*/g, '').match(/\bdevelopment owner\s*:\s*(desktop|laptop)\b/i)
+  out.owner = owner ? (owner[1].toLowerCase()           ) : null
+  return out
+}
+
+// The text those fields are read from: the preamble and the current checkpoint section.
+export function currentMetadataText(doc                                                                   )         {
+  const current = doc.sections[currentSectionIndex(doc.sections.map(s => s.title))]
+  return `${doc.preamble}\n${current ? `## ${current.title}\n${current.body}` : ''}`
+}
+
 // The project's folder, when the record names one in a Paths / Folder / Local checkout field: its first quoted path.
 export function folderOf(text        )                {
   const m = text.match(/\b(?:paths?|folder|local (?:path|checkout)|checkout)\*{0,2}:\*{0,2}\s*`([^`]+)`/i)
