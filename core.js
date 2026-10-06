@@ -1714,12 +1714,19 @@ export function pickUpPrompt(i             )         {
     ...(i.removed && i.removed.length > 0 ? [`- Removed since I last looked: ${i.removed.join('; ')}`] : []),
     ...(i.notes.length > 0 ? ['- Open notes about it:', ...i.notes.map(n => `  - "${n.title}" (~/claude-profile/${n.path})`)] : []),
   ]
+  // Where the record lives and who owns the work are different facts: a record that names another machine as owner
+  // mustn't then send the session to the record's machine (Codex band feedback, 6 Oct).
+  const owner = i.ownerElsewhere
   return [
-    i.ownerElsewhere
-      ? `I'm picking up ${i.name} again. This is the ${i.machine}'s record of it, but the record says the work is owned by the ${i.ownerElsewhere}: check which machine owns it before proposing anything.`
+    owner
+      ? `I'm picking up ${i.name} again. This is the ${i.machine}'s record of it, but the record says the work is owned by the ${owner}.`
       : `I'm picking up ${i.name} again. It's owned by the ${i.machine}, so this session should be running there.`,
     "Catch up first, read-only: don't edit files, commit, or resume any work until I give my go.",
-    `First check this session is running on the ${i.machine}${i.folder ? `, in ${i.folder}` : ''}; if it isn't, or the files aren't there, stop and tell me.`,
+    owner
+      ? `First check which machine this session is running on. If it's the ${owner}, work from the ${owner}'s own record` +
+        `${i.pairFile ? ` (~/claude-profile/${i.pairFile})` : ''} and checkout rather than this one. If it's the ${i.machine}, ` +
+        `treat ${i.folder ?? 'its local copy'} as possibly out of date, and check with me which machine should carry on before proposing anything.`
+      : `First check this session is running on the ${i.machine}${i.folder ? `, in ${i.folder}` : ''}; if it isn't, or the files aren't there, stop and tell me.`,
     '',
     ...read,
     '',
