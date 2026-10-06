@@ -1696,13 +1696,38 @@ export function declaredOwner(text        )                 {
 // (a legacy Paths line often goes on to list worktrees in prose).
                                                                                                                                
 
-// The value runs to the next field on the line (· or **) or the line's end, so several fields can share a line.
-const FOLDER_FIELD = /\*\*\s*(folders?|paths?|worktrees|local (?:path|checkout)|checkout)\s*(?:\((desktop|laptop)\))?\s*:\s*\*\*([^\n]*?)(?=\s·\s|\*\*|\n|$)/gi
+// A field counts only where metadata is written: at the start of a line (after an optional list marker) or after a
+// ` · ` separator on such a line; never inside a fenced code block, a block quote, or the middle of a sentence
+// (Codex band review, finding 6). The value runs to the next field on the line (· or **) or the line's end.
+const FIELD_AT = String.raw`(?:^[ \t]*(?:[-*][ \t]+)?|[ \t]·[ \t])`
+const FOLDER_FIELD = new RegExp(`${FIELD_AT}\\*\\*\\s*(folders?|paths?|worktrees|local (?:path|checkout)|checkout)\\s*(?:\\((desktop|laptop)\\))?\\s*:\\s*\\*\\*([^\\n]*?)(?=[ \\t]·[ \\t]|\\*\\*|$)`, 'gim')
+const OWNER_FIELD = new RegExp(`${FIELD_AT}\\*\\*\\s*development owner\\s*:\\s*\\*\\*\\s*(desktop|laptop)\\b`, 'im')
 const trimPath = (p        ) => p.trim().replace(/[\\/]+$/, '')
+
+// The record's text without fenced code blocks (``` or ~~~) and block quotes, where examples of fields live.
+export function metadataLines(text        )         {
+  const kept           = []
+  let fence                = null
+  for (const line of text.split('\n')) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1]
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = null
+      continue
+    }
+    if (marker) {
+      fence = marker
+      continue
+    }
+    if (/^\s*>/.test(line)) continue
+    kept.push(line)
+  }
+  return kept.join('\n')
+}
 
 export function recordFolders(text        , recordMachine         )                {
   const out                = { folders: { desktop: [], laptop: [] }, worktrees: { desktop: [], laptop: [] }, owner: null }
-  for (const m of text.matchAll(FOLDER_FIELD)) {
+  const lines = metadataLines(text)
+  for (const m of lines.matchAll(FOLDER_FIELD)) {
     const kind = m[1].toLowerCase() === 'worktrees' ? 'worktrees' : 'folders'
     const machine = (m[2]?.toLowerCase()                       ) ?? recordMachine
     const value = m[3]
@@ -1711,7 +1736,7 @@ export function recordFolders(text        , recordMachine         )             
     const taken = m[2] ? paths : paths.slice(0, 1)
     for (const p of taken) if (!out[kind][machine].includes(p)) out[kind][machine].push(p)
   }
-  const owner = text.replace(/\*\*/g, '').match(/\bdevelopment owner\s*:\s*(desktop|laptop)\b/i)
+  const owner = lines.match(OWNER_FIELD)
   out.owner = owner ? (owner[1].toLowerCase()           ) : null
   return out
 }
