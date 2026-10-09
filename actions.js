@@ -2,6 +2,7 @@
 // Each action changes state and calls changed() for a redraw.
 import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, currentMetadataText, declaredOwner, folderOf, recordFolders, sectionKeys, sectionPrints, STALE_DAYS_DEFAULT, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
                                                                                                            
+import { effectiveDraft, quickAddHtml, stripQuickAdd } from './quick-add.js'
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
 import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
@@ -336,7 +337,10 @@ export async function summarise(index        , isRedo         ) {
 }
 
 export async function saveDraft() {
-  const d = state.draft
+  // Saved as the quick-add tokens say (I9), without them; the form's own choice when they're kept as text.
+  const { kind, project: picked, q } = effectiveDraft()
+  const d = { ...state.draft, kind, project: picked, body: stripQuickAdd(state.draft.body, q) }
+  const startedAs = state.draft.kind
   const hasLink = isWebUrl(d.source)
   if (d.body.trim() === '' && !hasLink) return toast('Write something, or add a link')
   if (d.source.trim() && !hasLink) return toast('The link needs to start with http:// or https://')
@@ -351,7 +355,7 @@ export async function saveDraft() {
   const project = d.kind === 'note' ? d.project : ''
   putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), createdAt: Date.now() })
   refreshQueue()
-  state.draft = { ...EMPTY_DRAFT, kind: d.kind }
+  state.draft = { ...EMPTY_DRAFT, kind: startedAs }
   toast(`Saved on ${deviceName()}`)
   location.hash = project ? recordHref(project) : '#/inbox'
   await flushQueue()
@@ -780,9 +784,46 @@ export function clearDraft() {
   changed()
 }
 
+// Choosing a kind by hand keeps a token that says otherwise as text: idea: or note:, or a #project for an idea.
 export function setDraftKind(kind          ) {
+  const { q } = effectiveDraft()
+  const keep = new Set(state.draft.keep ?? [])
+  if (q.kind && q.kind.kind !== kind) keep.add(q.kind.token)
+  if (q.project && kind === 'idea') for (const t of q.project.tokens) keep.add(t)
+  state.draft.keep = [...keep]
   state.draft.kind = kind
   changed()
+}
+
+// Choosing a project by hand keeps a #project naming another one as text.
+export function setDraftProject(file        ) {
+  const { q } = effectiveDraft()
+  if (q.project && q.project.file !== file) state.draft.keep = [...new Set([...(state.draft.keep ?? []), ...q.project.tokens])]
+  state.draft.project = file
+  changed()
+}
+
+// ✕ on a quick-add chip: those tokens stay in the text and stop choosing anything.
+export function keepTokens(tokens        ) {
+  state.draft.keep = [...new Set([...(state.draft.keep ?? []), ...tokens.split(' ').filter(Boolean)])]
+  changed()
+}
+
+// Typing in the note box: the chips and the project list follow the tokens without redrawing the box, so the cursor
+// and the phone keyboard's word in progress are left alone. Only a change of kind (which adds or removes the project
+// list) redraws.
+export function setDraftBody(value        ) {
+  const before = effectiveDraft().kind
+  state.draft.body = value
+  const lower = value.toLowerCase()
+  if (state.draft.keep?.length) state.draft.keep = state.draft.keep.filter(k => lower.includes(k))
+  const now = effectiveDraft()
+  if (now.kind !== before) return changed()
+  const box = document.getElementById('draft-tokens')
+  const html = quickAddHtml(now.q, value.trim() === '')
+  if (box && box.innerHTML !== html) box.innerHTML = html
+  const select = document.getElementById('draft-project')                            
+  if (select && select.value !== now.project) select.value = now.project
 }
 
 export async function saveSettings() {

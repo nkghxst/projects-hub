@@ -29,7 +29,8 @@ import { defaultRepo } from './source.js'
                
  
                                        
-                                                                                                    
+// `keep`: quick-add tokens to leave as text (I9), always replaced, never pushed to, so EMPTY_DRAFT can't share one.
+                                                                                                                     
 // A note saved on the phone and not yet on GitHub. Its ID and path are fixed when it's saved, so a retry can't
 // duplicate it; `dest` is the repository it was written for, and it's only ever sent there.
                       

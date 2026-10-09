@@ -3,7 +3,7 @@
 import { activityChart, ageLabel, dayKeyOf, staleCheckpoint, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
                                                                   
 import { escapeHtml as esc, inline } from './markdown.js'
-import { chips, dot, linkResolver, liveBox, machineName, notesFor, projectName, providerTag, queuedFor } from './parts.js'
+import { chips, dot, linkResolver, liveBox, machineName, notesFor, onePerProject, projectName, providerTag, queuedFor } from './parts.js'
 import { recordHref } from './routes.js'
                                        
 import { changeOf } from './seen.js'
@@ -19,16 +19,6 @@ const GROUPS                                             = [
   { status: 'done', label: 'Done' },
 ]
 const NEXT_SHOWN = 6
-
-// A project on both machines shows once, through its record with the newer checkpoint; the row says it has another.
-function onePerProject(list           )            {
-  const shown = new Set(list.map(p => p.file))
-  return list.filter(p => {
-    if (!p.pairFile || !shown.has(p.pairFile)) return true
-    const other = list.find(o => o.file === p.pairFile)
-    return !other || (p.checkedMs ?? -1) > (other.checkedMs ?? -1) || ((p.checkedMs ?? -1) === (other.checkedMs ?? -1) && p.machine === 'desktop')
-  })
-}
 
 const openDetails = (key        ) => (state.openDetails.has(key) ? ' open' : '')
 

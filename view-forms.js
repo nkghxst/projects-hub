@@ -3,6 +3,7 @@ import { MACHINES } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { machineName, noteCard, projectName } from './parts.js'
 import { captureHref } from './routes.js'
+import { effectiveDraft, quickAddBox } from './quick-add.js'
 import { pageOwner, tokenTemplateUrl } from './source.js'
 import { deviceName, state, UNKNOWN_DEST } from './state.js'
 
@@ -82,23 +83,25 @@ function emptyInbox(canCapture         )         {
 
 export function renderCapture()         {
   const d = state.draft
+  // A quick-add token's kind and project show in the form as well as in its chip (I9).
+  const { kind, project, q } = effectiveDraft(d)
   const projects = state.data?.projects.filter(p => p.file) ?? []
   // The project this note was started from is always offered, even before the list has loaded; otherwise the
   // required picker would be empty and the browser would refuse to save.
-  const isProjectMissing = d.project !== '' && !projects.some(p => p.file === d.project)
+  const isProjectMissing = project !== '' && !projects.some(p => p.file === project)
   const extraOptions =
-    (isProjectMissing ? `<option value="${esc(d.project)}" selected>${esc(projectName(d.project))}</option>` : '') +
+    (isProjectMissing ? `<option value="${esc(project)}" selected>${esc(projectName(project))}</option>` : '') +
     (state.data ? '' : '<option value="" disabled>Loading projects…</option>')
   return `
     <div class="crumbs"><button data-action="back">← Back</button></div>
-    <h2 class="title">New ${d.kind === 'idea' ? 'idea' : 'note'}</h2>
+    <h2 class="title">New ${kind === 'idea' ? 'idea' : 'note'}</h2>
     <div class="segmented">
-      <button data-action="draft-kind" data-value="note" class="${d.kind === 'note' ? 'on' : ''}" aria-pressed="${d.kind === 'note'}">Note on a project</button>
-      <button data-action="draft-kind" data-value="idea" class="${d.kind === 'idea' ? 'on' : ''}" aria-pressed="${d.kind === 'idea'}">Idea</button>
+      <button data-action="draft-kind" data-value="note" class="${kind === 'note' ? 'on' : ''}" aria-pressed="${kind === 'note'}">Note on a project</button>
+      <button data-action="draft-kind" data-value="idea" class="${kind === 'idea' ? 'on' : ''}" aria-pressed="${kind === 'idea'}">Idea</button>
     </div>
     <form class="form" id="capture" autocomplete="off">
       ${
-        d.kind === 'note'
+        kind === 'note'
           ? `<label><span>Project</span>
               <select id="draft-project" required>
                 <option value="">Choose a project…</option>
@@ -106,13 +109,14 @@ export function renderCapture()         {
                 ${MACHINES.map(
                   m => `<optgroup label="${machineName(m)}">${projects
                     .filter(p => p.machine === m)
-                    .map(p => `<option value="${esc(p.file)}" ${p.file === d.project ? 'selected' : ''}>${esc(p.name)}</option>`)
+                    .map(p => `<option value="${esc(p.file)}" ${p.file === project ? 'selected' : ''}>${esc(p.name)}</option>`)
                     .join('')}</optgroup>`,
                 ).join('')}
               </select></label>`
           : ''
       }
-      <label><span>${d.kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span></span><textarea id="draft-body" rows="5">${esc(d.body)}</textarea></label>
+      <label><span>${kind === 'idea' ? 'Idea' : 'Note'} <span class="muted">(or just a link)</span></span><textarea id="draft-body" rows="5">${esc(d.body)}</textarea></label>
+      ${quickAddBox(q, d.body.trim() === '')}
       <label><span>Link <span class="muted">(optional)</span></span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
       <label><span>Title <span class="muted">(optional)</span></span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
       ${state.data?.canWrite === false ? `<p class="error" role="alert">This computer can't save notes here. ${esc(state.data.writeRefusal ?? '')}</p>` : ''}

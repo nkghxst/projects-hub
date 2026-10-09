@@ -10,6 +10,16 @@ import { renderSharePanel } from './view-share.js'
 
 export const dot = (tone      , glyph = '●') => `<span class="mark" style="color:${HEX[tone]}">${glyph}</span>`
 export const machineName = (m         ) => (m === 'desktop' ? 'Desktop' : 'Laptop')
+// A project on both machines shows once, through its record with the newer checkpoint; the row says it has another.
+// Quick-add tokens resolve a pair the same way.
+export function onePerProject(list           )            {
+  const shown = new Set(list.map(p => p.file))
+  return list.filter(p => {
+    if (!p.pairFile || !shown.has(p.pairFile)) return true
+    const other = list.find(o => o.file === p.pairFile)
+    return !other || (p.checkedMs ?? -1) > (other.checkedMs ?? -1) || ((p.checkedMs ?? -1) === (other.checkedMs ?? -1) && p.machine === 'desktop')
+  })
+}
 export const projectName = (file        ) =>
   state.data?.projects.find(p => p.file === file)?.name ?? file.split('/').pop()?.replace(/\.md$/, '') ?? file
 // A project's notes that are still open (handled ones are in the inbox's Handled filter).

@@ -43,7 +43,10 @@ import {
   setShareKind,
   shareNow,
   openShare,
+  setDraftBody,
   setDraftKind,
+  setDraftProject,
+  keepTokens,
   setFilters,
   summarise,
   takeShare,
@@ -312,6 +315,7 @@ document.addEventListener('click', async event => {
   else if (action === 'draft-kind') setDraftKind(value            )
   else if (action === 'new-idea') setDraftKind('idea')
   else if (action === 'clear-draft') clearDraft()
+  else if (action === 'keep-token') keepTokens(value)
   else if (action === 'forget-token') forgetToken()
   else if (action === 'remove-all') await removeAllData()
   else if (action === 'paste-connect') await pasteAndConnect()
@@ -347,7 +351,7 @@ document.addEventListener('input', event => {
   const el = event.target                    
   if (el.id === 'query') setFilters({ query: el.value })
   else if (el.id === 'draft-title') state.draft.title = el.value
-  else if (el.id === 'draft-body') state.draft.body = el.value
+  else if (el.id === 'draft-body') setDraftBody(el.value)
   else if (el.id === 'draft-source') state.draft.source = el.value
   else if (el.id === 'set-repo') state.settingsDraft.repo = el.value
   else if (el.id === 'set-token') state.settingsDraft.token = el.value
@@ -405,7 +409,7 @@ document.addEventListener(
 document.addEventListener('change', event => {
   const el = event.target               
   if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
-  else if (el.id === 'draft-project') state.draft.project = (el                     ).value
+  else if (el.id === 'draft-project') setDraftProject((el                     ).value)
   else if (el.id === 'set-stale') setStaleDays((el                    ).value)
 })
 

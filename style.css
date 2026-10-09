@@ -393,3 +393,10 @@ details.fold[open] > summary::before { transform: rotate(90deg); }
 details.fold > summary h2 { margin: 0; }
 details.fold:not([open]) { padding-bottom: 10px; }
 .chip.stale { color: var(--muted); border-style: dashed; }
+
+/* Quick-add tokens under the note box (I9): what #project or idea: will do, each with ✕ to keep it as text. */
+.draft-tokens { margin-top: -4px; }
+.draft-tokens p { margin: 2px 0; }
+.token-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.token-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 12px; font-size: 13px; }
+.token-chip button { padding: 2px 8px; }
