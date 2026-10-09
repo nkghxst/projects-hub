@@ -1,6 +1,6 @@
 // The home, decision first: what waits on the owner, then next actions, pinned projects, and every project grouped
 // by where it stands. The freshness counts, the 14-day chart and live work fold into an Activity area at the bottom.
-import { activityChart, ageLabel, dayKeyOf, staleCheckpoint, fmtDay, freshTone, kpis, notesBehind, sorter, SORTS } from './core.js'
+import { activityChart, aliasesFor, ageLabel, dayKeyOf, staleCheckpoint, fmtDay, freshTone, kpis, notesBehind, searchTerms, sorter, SORTS } from './core.js'
                                                                   
 import { escapeHtml as esc, inline } from './markdown.js'
 import { chips, dot, linkResolver, liveBox, machineName, notesFor, onePerProject, projectName, providerTag, queuedFor } from './parts.js'
@@ -149,10 +149,13 @@ function searchResults(query        , now        )         {
   const machine = state.filters.machine
   const all = state.searchFor === query.trim() ? state.searchHits : null
   const hits = all && machine !== 'all' ? all.filter(h => h.path.startsWith(`memory/${machine}/`)) : all
+  // Said outright, so a hit that doesn't contain the typed word isn't a puzzle (I6).
+  const extra = searchTerms(query.trim(), state.data?.aliases ?? []).flatMap(names => names.slice(1))
   return `
     <section class="card search-hits">
       <h2 class="home-h">In record text ${hits ? `<span class="muted">${hits.length === 30 ? '30+' : hits.length}</span>` : ''}
         ${state.source?.ask && hits && hits.length > 0 ? '<button type="button" class="link ask-link" data-action="ask-search" title="Ask Claude on this desktop, citing these sections">✦ Ask about these</button>' : ''}</h2>
+      ${extra.length > 0 ? `<p class="muted small">Also searched for ${extra.map(n => `<strong>${esc(n)}</strong>`).join(', ')} (aliases in the glossary)</p>` : ''}
       ${hits === null ? '<p class="muted">Searching…</p>' : hits.length === 0 ? '<p class="muted">No sections contain all of those words.</p>' : hits.map(h => hitHtml(h, now)).join('')}
     </section>`
 }
@@ -161,9 +164,13 @@ export function renderList(data      , width        )         {
   const f = state.filters
   const now = data.now
   const query = f.query.toLowerCase()
-  const isMatch = (p         ) =>
-    (f.machine === 'all' || p.machine === f.machine) &&
-    (query === '' || `${p.name} ${p.state} ${p.next} ${p.waits.map(w => w.text).join(' ')}`.toLowerCase().includes(query))
+  // The query as typed, or any of its other names when the whole query is an alias (I6: FDVR finds FlightDVR Studio).
+  const names = query === '' ? [] : [query, ...aliasesFor(query.trim(), data.aliases ?? [])]
+  const isMatch = (p         ) => {
+    if (f.machine !== 'all' && p.machine !== f.machine) return false
+    const text = `${p.name} ${p.state} ${p.next} ${p.waits.map(w => w.text).join(' ')}`.toLowerCase()
+    return query === '' || names.some(n => text.includes(n))
+  }
   const all = [...data.projects].sort(sorter(f.sort))
   const projects = onePerProject(all)
   const shown = onePerProject(all.filter(isMatch))

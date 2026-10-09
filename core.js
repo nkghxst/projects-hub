@@ -1406,10 +1406,26 @@ function snippetAround(text        , terms          )                           
 const byRank = (a           , b           ) =>
   Number(b.isCurrent) - Number(a.isCurrent) || b.score - a.score || (b.dateMs ?? -1) - (a.dateMs ?? -1)
 
-export function searchRecords(texts                        , query        , nowMs = Date.now(), limit = 30)              {
+// The query as terms, each with the names it may be found under: itself, plus its aliases when the whole word, or a
+// multi-word name in the query, is in an alias group (I6). With no groups, each term is just itself, as before.
+export function searchTerms(query        , groups               = [])             {
+  let rest = ` ${query.toLowerCase().replace(/\s+/g, ' ').trim()} `
+  const out             = []
+  const phrases = [...new Set(groups.flat().map(n => n.toLowerCase()).filter(n => n.includes(' ')))].sort((a, b) => b.length - a.length)
+  for (const phrase of phrases) {
+    if (!rest.includes(` ${phrase} `)) continue
+    out.push([phrase, ...aliasesFor(phrase, groups)])
+    rest = rest.split(` ${phrase} `).join(' ')
+  }
+  for (const word of rest.split(' ').filter(t => t.length >= 2)) out.push([word, ...aliasesFor(word, groups)])
+  const seen = new Set        ()
+  return out.filter(t => !seen.has(t[0]) && Boolean(seen.add(t[0])))
+}
+
+export function searchRecords(texts                        , query        , nowMs = Date.now(), limit = 30, aliases               = [])              {
   if (query.length > SEARCH_MAX) return []
-  const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(t => t.length >= 2))]
-  if (terms.length === 0) return []
+  const termNames = searchTerms(query, aliases)
+  if (termNames.length === 0) return []
   const hits              = []
   for (const [path, text] of Object.entries(texts)) {
     if (!/^memory\/(?:desktop|laptop)\/projects\/[^/]+\.md$/.test(path) || path.endsWith('/INDEX.md')) continue
@@ -1419,7 +1435,9 @@ export function searchRecords(texts                        , query        , nowM
     for (const part of parts) {
       const plainText = textOf(`${part.title}\n${part.body}`)
       const hay = plainText.toLowerCase()
-      if (!terms.every(t => hay.includes(t))) continue
+      // Every term must be there under one of its names; the names actually found are counted and highlighted.
+      if (!termNames.every(names => names.some(t => hay.includes(t)))) continue
+      const terms = termNames.flat().filter(t => hay.includes(t))
       const count = terms.reduce((n, t) => n + hay.split(t).length - 1, 0)
       const dates = datesIn(part.title, nowMs)
       // The excerpt comes from the body, or from heading and body when only the heading matched.
@@ -1461,10 +1479,13 @@ export function searchRecords(texts                        , query        , nowM
                        
  
 
-export function mentionNames(p                                )           {
+// The names a record goes by: its short name and its file name as words (four letters or more, so a guess can't be a
+// common short word), plus the aliases the glossary gives either (I6), which are curated, so shorter ones count.
+export function mentionNames(p                                , aliases               = [])           {
   const short = p.name.split(/ \(| \/ | [—–-] |:|,/)[0].trim().toLowerCase()
   const base = (p.file.split('/').pop() ?? '').replace(/\.md$/, '').replace(/[-_]+/g, ' ').trim().toLowerCase()
-  return [...new Set([short, base])].filter(n => n.length >= 4)
+  const own = [...new Set([short, base])].filter(n => n.length >= 4)
+  return [...new Set([...own, ...own.flatMap(n => aliasesFor(n, aliases))])].filter(n => n.length >= 2)
 }
 
 export function mentionsOf(
@@ -1473,8 +1494,9 @@ export function mentionsOf(
   notes         = [],
   nowMs = Date.now(),
   limit = 20,
+  aliases               = [],
 )            {
-  const names = mentionNames(target)
+  const names = mentionNames(target, aliases)
   const nameRe = names.length > 0 ? new RegExp(`(?<![\\w-])(?:${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\w-])`, 'i') : null
   const baseName = target.file.split('/').pop() ?? ''
   // The file name must end there: "widget.md.backup" is another file (Codex M6 review); "widget.md#notes", "widget.md)"
@@ -1971,6 +1993,34 @@ export function parseGlossary(md        )                  {
     if (m[1].trim() && meaning.trim()) out.push({ term: m[1].trim(), scope: (m[2] ?? '').trim(), meaning: textOf(meaning.trim()), source: source.trim() })
   }
   return out
+}
+
+// Aliases (I6), in the same file: names that mean the same thing, one group per list item, the first name in bold:
+//   - **FlightDVR Studio** = FlightDVR, FDVR
+// Names are separated by commas or ·. Search finds any of a group's names when the query names one (a whole word or a
+// whole multi-word name), and Mentioned elsewhere finds a record under its aliases. A line with one name is ignored.
+                                 
+
+export function parseAliases(md        )               {
+  const out               = []
+  for (const line of md.replace(/\r/g, '').split('\n')) {
+    const m = line.match(/^\s*[-*]\s+\*\*([^*]{1,60})\*\*\s*=\s*(.*)$/)
+    if (!m) continue
+    const names           = []
+    for (const raw of [m[1], ...m[2].split(/\s*[,·]\s*/)]) {
+      const name = textOf(raw).trim()
+      if (name && !names.some(n => n.toLowerCase() === name.toLowerCase())) names.push(name)
+    }
+    if (names.length > 1) out.push(names)
+  }
+  return out
+}
+
+// The other names for a name (whole and case-insensitive; never part of one), lower-cased, from every group it's in.
+export function aliasesFor(name        , groups              )           {
+  const n = name.toLowerCase()
+  const out = groups.filter(g => g.some(x => x.toLowerCase() === n)).flatMap(g => g.map(x => x.toLowerCase()))
+  return [...new Set(out)].filter(x => x !== n)
 }
 
 // ---------- usage: readings of each account's rate-limit windows, never estimates ----------

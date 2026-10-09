@@ -18,6 +18,7 @@ import {
   ownerOf,
   pairProjects,
   parseDoc,
+  parseAliases,
   parseGlossary,
   parseHandledMark,
   parseHosts,
@@ -29,7 +30,7 @@ import {
   searchRecords,
   withHandled,
 } from './core.js'
-                                                                                                                                                                                      
+                                                                                                                                                                                                  
 
                     
              
@@ -43,6 +44,8 @@ import {
                        
                                                                          
                             
+                                                                                                      
+                        
                                                                                        
                 
                                                                                                                     
@@ -210,6 +213,7 @@ export function destinationOf(settings                )         {
                         
                        
                             
+                        
                
  
 
@@ -312,6 +316,7 @@ export function githubSource(settings                , signal              )    
     const owner = ownerOf(first.profile?.text ?? '')
     const usage = MACHINES.flatMap(m => parseUsageSnapshot(first[`usage_${m}`]?.text ?? '')?.readings ?? [])
     const glossary = parseGlossary(first.glossary?.text ?? '')
+    const aliases = parseAliases(first.glossary?.text ?? '')
 
     const records = Object.keys(texts).filter(p => /^memory\/(?:desktop|laptop)\/projects\//.test(p))
     const edits                         = {}
@@ -362,7 +367,7 @@ export function githubSource(settings                , signal              )    
     )
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, glossary, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, glossary, aliases, notes }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -382,7 +387,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, owner: s.owner }
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner }
     },
     record: async path => {
       const s = await current()
@@ -418,12 +423,15 @@ export function githubSource(settings                , signal              )    
       return { current: s.texts[path] ?? versions[0]?.text ?? null, versions }
     },
     notesDir: PHONE_DIR,
-    search: async query => searchRecords((await current()).texts, query),
+    search: async query => {
+      const s = await current()
+      return searchRecords(s.texts, query, Date.now(), 30, s.aliases ?? [])
+    },
     // Worked out from the saved copy, so it works offline too.
     mentions: async path => {
       const s = await current()
       const p = projectsFrom(s).find(x => x.file === path)
-      return mentionsOf({ file: path, pairFile: p?.pairFile, name: p?.name ?? '' }, s.texts, s.notes)
+      return mentionsOf({ file: path, pairFile: p?.pairFile, name: p?.name ?? '' }, s.texts, s.notes, Date.now(), 20, s.aliases ?? [])
     },
     // A mark is a new small file in memory/phone/handled/, created like a note.
     mark: async (note, handled) => {
@@ -503,7 +511,7 @@ export function snapshotAge(settings                )                {
 export function snapshotProjects(settings                )              {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, owner: s.owner } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".
