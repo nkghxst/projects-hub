@@ -24,6 +24,24 @@ function names(row          , rows            )                                 
   return row.account === 'claude-desktop' ? { name: 'Claude D', short: 'D' } : { name: 'Claude L', short: 'L' }
 }
 
+// Time until a reset, counted from now: "in 4h 24m", "in 2d 3h", "in 12m"; "due now" once it has passed (the next
+// redraw then shows the window as unknown).
+export function untilLabel(resetMs        , now        )         {
+  if (resetMs <= now) return 'due now'
+  const mins = Math.floor((resetMs - now) / 60000)
+  if (mins < 1) return 'in <1m'
+  if (mins < 60) return `in ${mins}m`
+  const hours = Math.floor(mins / 60)
+  return hours < 24 ? `in ${hours}h ${mins % 60}m` : `in ${Math.floor(hours / 24)}d ${hours % 24}h`
+}
+
+// Keeps an open panel's countdowns moving between full redraws, rewriting only their text so focus stays put.
+export function tickCountdowns(root                                                         , now        ) {
+  for (const el of root?.querySelectorAll?.             ('[data-reset-ms]') ?? []) {
+    el.textContent = untilLabel(Number(el.dataset.resetMs), now)
+  }
+}
+
 // Readings over an hour old show their age on the chip itself, so an old figure can't pass for a fresh one.
 const STALE_MS = 60 * 60 * 1000
 
@@ -35,7 +53,7 @@ function panelHtml(rows            , now        )         {
       : `<div class="usage-window"><span class="usage-name">${esc(w.name)}</span>
           <span class="meter" aria-hidden="true"><span style="width:${Math.min(100, Math.max(0, w.usedPercent))}%"></span></span>
           <span>${esc(String(Math.round(w.usedPercent * 10) / 10))}% used</span>
-          <span class="muted">${w.resetsAtMs !== null ? `resets ${esc(fmtStamp(w.resetsAtMs, now))}` : 'reset time not reported'}</span></div>`
+          <span class="muted">${w.resetsAtMs !== null ? `resets <span data-reset-ms="${w.resetsAtMs}">${esc(untilLabel(w.resetsAtMs, now))}</span> · ${esc(fmtStamp(w.resetsAtMs, now))}` : 'reset time not reported'}</span></div>`
   return `
     <div id="usage-panel" class="usage-panel card" role="region" aria-label="Usage details">
       ${rows
@@ -47,8 +65,6 @@ function panelHtml(rows            , now        )         {
           </div>`,
         )
         .join('')}
-      <p class="muted small">Readings as each provider last reported them, not estimates: "used" is as of the time read.
-        Codex is one account, shown from whichever machine read it most recently.</p>
     </div>`
 }
 

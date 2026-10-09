@@ -55,7 +55,7 @@ import { changed, isConfigured, onChange, openNotes, QUEUE_PREFIX, REFRESH_MS, r
 import { renderCapture, renderInbox, renderSettings } from './view-forms.js'
 import { renderList } from './view-list.js'
 import { renderSetup } from './view-setup.js'
-import { renderUsageBar } from './view-usage.js'
+import { renderUsageBar, tickCountdowns } from './view-usage.js'
 import { renderRecord } from './view-record.js'
 import { renderAsk } from './view-ask.js'
 import { renderChanges } from './view-changes.js'
@@ -169,7 +169,7 @@ function render() {
   view.innerHTML = html
   renderNav()
   renderTabbar()
-  usageBar.innerHTML = renderUsageBar(state.data?.usage, state.data?.now ?? Date.now())
+  usageBar.innerHTML = renderUsageBar(state.data?.usage, Date.now())
   document.body.dataset.route = r.name
 
   const at = new Date(state.loadedAt)
@@ -489,6 +489,7 @@ if (state.mode === 'local') {
   takeShare()
 }
 setInterval(() => void refresh(), REFRESH_MS)
+setInterval(() => tickCountdowns(usageBar, Date.now()), 30 * 1000)
 render()
 await loadAll()
 await route()
