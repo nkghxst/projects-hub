@@ -61,7 +61,7 @@ export function liveBox(source      , now        , isCompact         )         {
   return `
     <section class="card live">
       <div class="live-head">
-        ${dot('good', '⚡')} <strong>${esc(source.label)}</strong>
+        ${dot('good', '⚡')} <strong>${esc(source.label)}</strong> <span class="muted small">local observation only</span>
         ${source.latestMs !== null ? `<span class="muted">last activity ${esc(fmtStamp(source.latestMs, now))} (${esc(ageLabel(source.latestMs, now, true))} ago)</span>` : ''}
       </div>
       ${isCompact && latest ? `<div class="clip muted">${esc(latest.text.replace(/\*\*|`/g, ''))}</div>` : ''}

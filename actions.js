@@ -48,7 +48,8 @@ export async function loadAll() {
     state.error = errorText(error)
     // On the phone, fall back to this repository's saved copy so projects still read offline.
     if (state.mode === 'github' && error instanceof Error && error.name === 'offline') {
-      const snap = snapshotProjects(settings)
+      const snap = await snapshotProjects(settings)
+      if (generation !== state.sourceGeneration) return
       if (snap) {
         state.data = snap
         state.isOffline = true

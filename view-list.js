@@ -9,6 +9,7 @@ import { recordHref } from './routes.js'
 import { changeOf } from './seen.js'
 import { changedRecords } from './view-changes.js'
 import { isPinned, state } from './state.js'
+import { snapshotChip, snapshotOverview } from './view-snapshot.js'
 
 const GROUPS                                             = [
   { status: 'waiting', label: 'Waiting on you' },
@@ -197,6 +198,7 @@ export function renderList(data      , width        )         {
             <span class="name">${esc(p.name)}</span>
             <span class="chip">${dot(p.machine)} ${machineName(p.machine)}</span>
             ${providerTag(p)}
+            ${snapshotChip(data.sharedProjects, p.file)}
             ${changeChip(p, pair)}
             ${staleChip(p, pair, now)}
             ${pair ? `<span class="chip" title="Also has a record on the other machine">⇄ also ${machineName(pair.machine)}${pair.checkedMs !== null ? ` · ${esc(ageLabel(pair.checkedMs, now, false))}` : ''}</span>` : ''}
@@ -231,6 +233,7 @@ export function renderList(data      , width        )         {
 
     <h2 class="home-h all">All projects <span class="muted">${projects.length}</span></h2>
     ${freshness(data.published, now)}
+    ${snapshotOverview(data.sharedProjects)}
     <div class="toolbar">
       <input id="query" type="search" aria-label="Search projects and record text" placeholder="Search projects and records…" value="${esc(f.query)}" autocomplete="off">
       <div class="segmented">

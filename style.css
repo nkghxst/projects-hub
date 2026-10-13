@@ -400,3 +400,6 @@ details.fold:not([open]) { padding-bottom: 10px; }
 .token-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .token-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 12px; font-size: 13px; }
 .token-chip button { padding: 2px 8px; }
+
+/* Snapshot fingerprints and Git IDs must wrap on the phone. */
+.snapshot { overflow-wrap: anywhere; }

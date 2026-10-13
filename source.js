@@ -31,8 +31,11 @@ import {
   withHandled,
 } from './core.js'
                                                                                                                                                                                                   
+import { sharedProjectsFrom, snapshotPath } from './project-snapshot.js'
+                                                           
 
                     
+                                 
              
                      
               
@@ -200,6 +203,7 @@ export function destinationOf(settings                )         {
 
                                                                                  
                  
+                                                            
               
             
               
@@ -300,6 +304,7 @@ export function githubSource(settings                , signal              )    
         `profile: ${blob('profile.md')}`,
         `glossary: ${blob(GLOSSARY_PATH)}`,
         ...MACHINES.map(m => `usage_${m}: ${blob(`memory/${m}/hub/usage.md`)}`),
+        ...MACHINES.map(m => `projects_${m}: ${blob(snapshotPath(m))}`),
         ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`),
       ].join('\n')),
     )
@@ -312,6 +317,7 @@ export function githubSource(settings                , signal              )    
       }
     }
     const hosts = parseHosts(first.sync?.text ?? '')
+    const projectSnapshots = Object.fromEntries(MACHINES.map(m => [m, first[`projects_${m}`]?.text ?? null]))
     // The owner's name, so the home can find what waits on them (kept out of the published app).
     const owner = ownerOf(first.profile?.text ?? '')
     const usage = MACHINES.flatMap(m => parseUsageSnapshot(first[`usage_${m}`]?.text ?? '')?.readings ?? [])
@@ -367,7 +373,7 @@ export function githubSource(settings                , signal              )    
     )
 
     if (isRetired()) throw sourceError('other', 'Stopped')
-    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, glossary, aliases, notes }
+    snapshot = { dest, at: Date.now(), hosts, owner, texts, edits, days, daysIncomplete, usage, published, glossary, aliases, notes, projectSnapshots }
     try {
       localStorage.setItem(snapshotKey(dest), JSON.stringify(snapshot))
       snapshotProblem = ''
@@ -387,7 +393,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner }
+      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) }
     },
     record: async path => {
       const s = await current()
@@ -508,10 +514,10 @@ export function snapshotAge(settings                )                {
 }
 
 // Offline start: rebuild the views from the saved copy for these settings, without a request.
-export function snapshotProjects(settings                )              {
+export async function snapshotProjects(settings                )                       {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

@@ -11,6 +11,7 @@ import { captureHref, recordHref } from './routes.js'
 import { isPinned, state } from './state.js'
 import { renderSharePanel } from './view-share.js'
 import { currentPickUp, pickUpContext } from './actions.js'
+import { snapshotDetails } from './view-snapshot.js'
 
 function rowHtml(r     , resolve              )         {
   if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
@@ -220,7 +221,8 @@ export function renderRecord(doc            , data             )         {
         ? `<div class="meta">${dot(p.machine)} ${machineName(p.machine)} record · checkpoint ${p.checkedMs !== null ? `${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : 'not dated'}
             · edited ${p.editedMs !== null ? `${esc(fmtStamp(p.editedMs, now))} on ${esc(p.editedOn)}` : 'unknown'} ${providerTag(p)}</div>
            ${p.flags.length > 0 ? `<div class="chips">${chips(p)}</div>` : ''}
-           ${termsOnce(() => briefHtml(p, resolve))}`
+           ${termsOnce(() => briefHtml(p, resolve))}
+           ${snapshotDetails(data?.sharedProjects, p.file)}`
         : doc.next || doc.readFirst
           ? `<section class="card accent">
               ${doc.next ? `<div class="label strong">Next</div>${md(doc.next)}` : ''}
