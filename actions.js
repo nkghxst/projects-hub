@@ -27,6 +27,9 @@ import {
   UNKNOWN_DEST,
 } from './state.js'
                                                            
+import { photoStore } from './photos.js'
+import { clearDraftPhotos, clearPhotoViews } from './photo-ui.js'
+import { parseNote } from './core.js'
 
 export async function loadAll() {
   const source = state.source
@@ -106,6 +109,8 @@ export async function loadRecord(path        ) {
 
 // Replaces the active source: stops its requests, invalidates work started for it, and clears what it showed.
 function replaceSource(next               ) {
+  clearPhotoViews()
+  clearDraftPhotos()
   clearLocalMarks()
   clearSearch()
   state.abort.abort()
@@ -152,6 +157,16 @@ export async function flushQueue() {
         if (generation !== state.sourceGeneration) return
         if (!isQueued(q.id)) continue
         try {
+          const attachments = parseNote(q.path, q.text).attachments ?? []
+          if (q.attachments?.length && JSON.stringify(q.attachments) !== JSON.stringify(attachments)) throw new Error('Picture references are damaged; note retained')
+          if (attachments.length && !source.createPhoto) throw new Error('This connection cannot upload pictures; note retained')
+          for (const path of attachments) {
+            const blob = await photoStore('get', source.dest, path)
+            if (!blob) throw new Error('A saved picture is missing from this device; note retained')
+            if (generation !== state.sourceGeneration || !isQueued(q.id)) return
+            await source.createPhoto (path, blob)
+          }
+          if (generation !== state.sourceGeneration || !isQueued(q.id)) return
           await create(q.path, q.text, `Phone ${q.kind}: ${q.title}`)
           dropQueued(q.id)
           sent++
@@ -338,12 +353,13 @@ export async function summarise(index        , isRedo         ) {
 }
 
 export async function saveDraft() {
+  if (state.photoBusy || state.savingDraft) return toast('Wait for the pictures to finish saving')
   // Saved as the quick-add tokens say (I9), without them; the form's own choice when they're kept as text.
   const { kind, project: picked, q } = effectiveDraft()
   const d = { ...state.draft, kind, project: picked, body: stripQuickAdd(state.draft.body, q) }
   const startedAs = state.draft.kind
   const hasLink = isWebUrl(d.source)
-  if (d.body.trim() === '' && !hasLink) return toast('Write something, or add a link')
+  if (d.body.trim() === '' && !hasLink && state.draftPhotos.length === 0) return toast('Write something, or add a link')
   if (d.source.trim() && !hasLink) return toast('The link needs to start with http:// or https://')
   if (d.kind === 'note' && !d.project) return toast('Choose a project, or switch to Idea')
   if (looksLikeSecret(`${d.title}\n${d.body}\n${d.source}`)) {
@@ -351,10 +367,24 @@ export async function saveDraft() {
   }
   const source = state.source
   if (!source?.createFile) return toast('Connect to GitHub in Settings first')
-  const file = formatNote(d, Date.now(), newQueueId(), source.notesDir ?? PHONE_DIR)
-  const title = (d.title.trim() || d.body.trim().split('\n')[0] || d.source.trim()).slice(0, 80)
+  if (state.draftPhotos.length && !source.createPhoto) return toast('Pictures can be saved from the phone connection')
+  const id = newQueueId(), generation = state.sourceGeneration, photoGeneration = state.photoGeneration
+  const pictures = [...state.draftPhotos]
+  const attachments = pictures.map((p,i) => `memory/phone/attachments/${id}/${i}.${p.extension}`)
+  const title = (d.title.trim() || d.body.trim().split('\n')[0] || d.source.trim() || 'Picture note').slice(0, 80)
+  const file = formatNote({ ...d, title, attachments }, Date.now(), id, source.notesDir ?? PHONE_DIR)
   const project = d.kind === 'note' ? d.project : ''
-  putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), createdAt: Date.now() })
+  state.savingDraft = true; changed()
+  try {
+    for (let i = 0; i < pictures.length; i++) {
+      if (generation !== state.sourceGeneration || photoGeneration !== state.photoGeneration) return
+      await photoStore('put', source.dest, attachments[i], pictures[i].blob)
+    }
+    if (generation !== state.sourceGeneration || photoGeneration !== state.photoGeneration) return
+    putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), attachments, createdAt: Date.now() })
+  } catch (error) { toast(`Not saved: ${errorText(error)}. Your draft is still here.`); return }
+  finally { state.savingDraft = false; changed() }
+  clearDraftPhotos()
   refreshQueue()
   state.draft = { ...EMPTY_DRAFT, kind: startedAs }
   toast(`Saved on ${deviceName()}`)
@@ -781,6 +811,8 @@ export async function copyAnswer() {
 }
 
 export function clearDraft() {
+  if (state.savingDraft) return
+  clearDraftPhotos()
   state.draft = { ...EMPTY_DRAFT, kind: state.draft.kind }
   changed()
 }
@@ -911,6 +943,10 @@ export async function removeAllData() {
   }
   for (const key of keys) localStorage.removeItem(key)
   localStorage.setItem('hub.epoch', `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+  let photoWarning = ''
+  if ('indexedDB' in globalThis) {
+    try { await photoStore('clear') } catch { photoWarning = ' Picture storage could not be cleared; clear this site’s data in browser settings.' }
+  }
   Object.assign(settings, { token: '', repo: '', apiBase: 'https://api.github.com' })
   state.settingsDraft = { ...settings }
   state.draft = { ...EMPTY_DRAFT }
@@ -926,7 +962,7 @@ export async function removeAllData() {
       cacheNote = " The app's cached pages couldn't be cleared; they hold no notes or project data."
     }
   }
-  state.settingsMessage = `The token, settings, offline copies and unsent notes have been removed from this device.${cacheNote} The token itself stays valid until you revoke it on GitHub.`
+  state.settingsMessage = `The token, settings, offline copies and unsent notes have been removed from this device.${cacheNote}${photoWarning} The token itself stays valid until you revoke it on GitHub.`
   changed()
 }
 
@@ -934,12 +970,24 @@ export async function removeAllData() {
 export async function sendHeldHere(id        ) {
   const item = readQueue().find(q => q.id === id)
   const dest = state.source?.dest
+  const generation = state.sourceGeneration
   if (!item || !dest) return
+  if ((parseNote(item.path, item.text).attachments?.length ?? 0) > 0 && !state.source?.createPhoto) return toast('Picture notes need a GitHub connection; this note has not been moved')
   const question =
     item.dest === UNKNOWN_DEST
       ? `Send "${item.title}" to ${settings.repo}? It was saved by an earlier version of the app, which didn't record which repository it was for.\n\n${item.text.slice(0, 400)}`
       : `Send "${item.title}" to ${settings.repo} instead of the repository it was written for?\n\n${item.text.slice(0, 400)}`
   if (!confirm(question)) return
+  // Explicit relocation copies private bytes before changing the queue's destination.
+  try {
+    for (const path of parseNote(item.path, item.text).attachments ?? []) {
+      const blob = await photoStore('get', item.dest, path)
+      if (!blob) return toast('A saved picture is missing; this note has not been moved')
+      if (generation !== state.sourceGeneration || !isQueued(id)) return
+      await photoStore('put', dest, path, blob)
+    }
+  } catch (error) { return toast(errorText(error)) }
+  if (generation !== state.sourceGeneration || !isQueued(id)) return
   putQueued({ ...item, dest, conflict: undefined })
   refreshQueue()
   await flushQueue()

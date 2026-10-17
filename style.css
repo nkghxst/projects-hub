@@ -403,3 +403,18 @@ details.fold:not([open]) { padding-bottom: 10px; }
 
 /* Snapshot fingerprints and Git IDs must wrap on the phone. */
 .snapshot { overflow-wrap: anywhere; }
+
+/* Phone note pictures: blob URLs only; large view keeps screenshot text zoomable. */
+.capture-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1rem; }
+.form .photo-picker { position: relative; display: inline-flex; align-items: center; cursor: pointer; font-weight: 400; border: 1px solid var(--line); border-radius: 7px; padding: 8px 12px; min-height: 44px; background: var(--surface); }
+.photo-picker:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.photo-picker .photo-input { position: absolute; width: 1px; height: 1px; opacity: 0; padding: 0; overflow: hidden; }
+.picture-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; margin-block: .6rem; }
+.picture-grid figure { margin: 0; min-width: 0; }
+.picture-grid img { display: block; width: 100%; height: 140px; object-fit: contain; }
+.picture-grid button { max-width: 100%; overflow-wrap: anywhere; }
+.picture-viewer { max-width: 95vw; max-height: 90vh; padding: .5rem; overflow: auto; }
+.picture-viewer::backdrop { background: #000b; }
+.picture-controls { position: sticky; top: 0; left: 0; display: flex; gap: .5rem; z-index: 1; }
+.picture-viewer img { display: block; max-width: 100%; }
+.picture-viewer img.full-size { max-width: none; }

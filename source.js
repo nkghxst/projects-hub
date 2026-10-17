@@ -60,7 +60,11 @@ import { sharedProjectsFrom, snapshotPath } from './project-snapshot.js'
                                                                             
                                                                              
 
+import { githubPhotos } from './photo-source.js'
+
                       
+                                                           
+                                                           
                           
                                                                                                                           
               
@@ -133,6 +137,11 @@ export function localSource()         {
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
     notesDir: DESKTOP_NOTES_DIR,
+    readPhoto: async (path, note) => {
+      const res = await fetch('/api/note-photo', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path, note }), cache: 'no-store' })
+      if (!res.ok) throw new Error('Picture unavailable; sync this computer and refresh')
+      return res.blob()
+    },
     search: async query => (await getJson                       (`/api/search?q=${encodeURIComponent(query)}`)).hits,
     // The desktop app writes through the hub server, into this clone's memory/desktop/; sync.sh publishes it.
     createFile: async (path, text) => {
@@ -447,6 +456,7 @@ export function githubSource(settings                , signal              )    
       return atMs
     },
     createFile: async (path, text, message) => createFile(path, text, message),
+    ...githubPhotos(contentsUrl, headers, signal, isRetired),
   }
 
   // Creates a new file through the contents API (create-only: an existing path is never overwritten).

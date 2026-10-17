@@ -497,6 +497,7 @@ export const DESKTOP_NOTES_DIR = 'memory/desktop'
 export const NOTE_DIRS = [PHONE_DIR, DESKTOP_NOTES_DIR]
                                       
                     
+                        
               
                 
                  
@@ -587,8 +588,26 @@ export function parseNote(path        , text        )       {
     title: fields.title || body.split('\n')[0].slice(0, 80) || fields.source || '(untitled)',
     captured: fields.captured ?? '',
     source: fields.source ?? '',
+    attachments: parseAttachments(path, fields.attachments),
     body,
   }
+}
+
+// Only phone-owned images bound to this note's random ID. Never render arbitrary URLs.
+export const PHOTO_MAX_BYTES = 2 * 1024 * 1024
+export const PHOTO_MAX_COUNT = 4
+export function isPhotoPath(path        )          {
+  return /^memory\/phone\/attachments\/[a-f0-9]{16}\/[0-3]\.(png|jpg)$/.test(path)
+}
+export function parseAttachments(note        , value         )           {
+  if (!value) return []
+  const id = /^memory\/phone\/(?:notes|ideas)\/[a-z0-9-]+-([a-f0-9]{16})\.md$/.exec(note)?.[1]
+  if (!id) return []
+  try {
+    const paths          = JSON.parse(value)
+    return Array.isArray(paths) && paths.length <= PHOTO_MAX_COUNT && new Set(paths).size === paths.length &&
+      paths.every(p => typeof p === 'string' && isPhotoPath(p) && p.startsWith(`memory/phone/attachments/${id}/`)) ? paths : []
+  } catch { return [] }
 }
 
 export function slugify(text        )         {
@@ -632,7 +651,7 @@ export const isWebUrl = (url        ) => /^https?:\/\/[^\s"<>]+$/i.test(url.trim
 
 // A new note's ID, path and file text. The time is local, as the owner reads it. A note needs text or a link.
 export function formatNote(
-  draft                                                                                  ,
+  draft                                                                                                          ,
   nowMs        ,
   id         = noteId(),
   dir         = PHONE_DIR,
@@ -646,6 +665,7 @@ export function formatNote(
     `title: ${title.replace(/\n/g, ' ')}`,
     `captured: ${captured}`,
     ...(draft.source.trim() ? [`source: ${draft.source.trim()}`] : []),
+    ...(draft.attachments?.length ? [`attachments: ${JSON.stringify(draft.attachments)}`] : []),
   ]
   return {
     id,

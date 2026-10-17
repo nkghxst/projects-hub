@@ -106,6 +106,7 @@ export function destinationLabel(dest        )         {
 // A note or idea. Queued notes are read from the exact text that will be sent, so what shows (link included) is what
 // goes; they say where they're going, can always be copied, and where something is stopping them, they get actions:
 // a conflict or a held note can be discarded, and a held one can be sent to the current repository instead.
+import { notePictures } from './photo-ui.js'
 export function noteCard(n               , isQueued         , hold                                                  = '')         {
   const resolve = linkResolver(n.path)
   const project = n.project ? `<a href="${recordHref(n.project)}">${esc(projectName(n.project))}</a>` : ''
@@ -127,7 +128,8 @@ export function noteCard(n               , isQueued         , hold              
           ? ' · held: repository unknown'
           : ` · saved on ${deviceName()}, waiting to send to ${dest}`
   const id = 'id' in n ? n.id : ''
-  const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile)
+  const hasPictures = ('text' in n ? parseNote(n.path, n.text).attachments : n.attachments)?.length
+  const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile) && (!hasPictures || Boolean(state.source?.createPhoto))
   const actions = isQueued
     ? `<div class="actions">
         ${canPlace ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to ${esc(settings.repo || 'the current repository')}${hold === 'other-repo' ? ' instead' : ''}</button>` : ''}
@@ -165,6 +167,7 @@ export function noteCard(n               , isQueued         , hold              
         ${!isQueued && state.mode === 'local' ? `<a class="link muted" href="${recordHref(n.path)}">file</a>` : ''}
       </div>
       <div class="md">${renderMarkdown(n.body, resolve)}</div>
+      ${notePictures(n)}
       ${source}
       ${conflict}
       ${actions}

@@ -34,6 +34,7 @@ import { defaultRepo } from './source.js'
 // A note saved on the phone and not yet on GitHub. Its ID and path are fixed when it's saved, so a retry can't
 // duplicate it; `dest` is the repository it was written for, and it's only ever sent there.
                       
+                        
             
               
               
@@ -197,6 +198,10 @@ export const state = {
   queue: readQueue(),
   queueError: '',
   draft: { ...EMPTY_DRAFT }         ,
+  draftPhotos: []                                                           ,
+  photoGeneration: 0,
+  photoBusy: false,
+  savingDraft: false,
   // What's being typed into Settings, kept across redraws until it's saved. A first run starts with the usual repo.
   settingsDraft: { ...settings, repo: settings.repo || defaultRepo() }                  ,
   settingsMessage: '',

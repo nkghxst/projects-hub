@@ -63,6 +63,7 @@ import { renderRecord } from './view-record.js'
 import { renderAsk } from './view-ask.js'
 import { renderChanges } from './view-changes.js'
 import { shareSummary, shareTextHtml } from './view-share.js'
+import { addPictures, removePicture, enlargePicture, viewPicture, loadPicturePreviews } from './photo-ui.js'
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
 const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
@@ -170,6 +171,7 @@ function render() {
   // Only rewritten when it changes, so the live region doesn't repeat itself on every redraw.
   if (bannerBox.innerHTML !== bannerHtml) bannerBox.innerHTML = bannerHtml
   view.innerHTML = html
+  if (document.querySelectorAll) loadPicturePreviews()
   renderNav()
   renderTabbar()
   usageBar.innerHTML = renderUsageBar(state.data?.usage, Date.now())
@@ -243,6 +245,9 @@ document.addEventListener('click', async event => {
   else if (action === 'share-open') openShare({ target: 'section', index: Number(value) })
   else if (action === 'share-note') openShare({ target: 'note', note: value })
   else if (action === 'share-kind') setShareKind(value             )
+  else if (action === 'photo-remove') removePicture(Number(value))
+  else if (action === 'draft-photo-view') { const p = state.draftPhotos[Number(value)]; if (p) enlargePicture(p.url) }
+  else if (action === 'photo-view') await viewPicture(target)
   else if (action === 'share-send') await shareNow()
   else if (action === 'share-copy') await copyShare()
   else if (action === 'ask-search') askFromSearch()
@@ -408,6 +413,7 @@ document.addEventListener(
 
 document.addEventListener('change', event => {
   const el = event.target               
+  if (el.id === 'draft-pictures' || el.id === 'draft-camera') { void addPictures(Array.from((el                    ).files ?? [])); return }
   if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
   else if (el.id === 'draft-project') setDraftProject((el                     ).value)
   else if (el.id === 'set-stale') setStaleDays((el                    ).value)

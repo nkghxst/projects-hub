@@ -81,6 +81,7 @@ function emptyInbox(canCapture         )         {
     : '<p class="muted">Nothing here yet. Connect in <a href="#/settings">Settings</a> to capture notes and ideas.</p>'
 }
 
+import { capturePictures } from './photo-ui.js'
 export function renderCapture()         {
   const d = state.draft
   // A quick-add token's kind and project show in the form as well as in its chip (I9).
@@ -100,6 +101,7 @@ export function renderCapture()         {
       <button data-action="draft-kind" data-value="idea" class="${kind === 'idea' ? 'on' : ''}" aria-pressed="${kind === 'idea'}">Idea</button>
     </div>
     <form class="form" id="capture" autocomplete="off">
+      <fieldset class="capture-fields"${state.savingDraft ? ' disabled' : ''}>
       ${
         kind === 'note'
           ? `<label><span>Project</span>
@@ -119,6 +121,7 @@ export function renderCapture()         {
       ${quickAddBox(q, d.body.trim() === '')}
       <label><span>Link <span class="muted">(optional)</span></span><input id="draft-source" type="url" value="${esc(d.source)}" placeholder="https://…"></label>
       <label><span>Title <span class="muted">(optional)</span></span><input id="draft-title" value="${esc(d.title)}" maxlength="120"></label>
+      ${capturePictures()}
       ${state.data?.canWrite === false ? `<p class="error" role="alert">This computer can't save notes here. ${esc(state.data.writeRefusal ?? '')}</p>` : ''}
       <div class="actions sticky">
         <button class="primary" type="submit"${state.data?.canWrite === false ? ' disabled' : ''}>Save</button>
@@ -129,6 +132,7 @@ export function renderCapture()         {
           ? "Saved to this computer's claude-profile clone (memory/desktop/); the next profile sync publishes it, so the phone sees it after that."
           : "Saved on this phone straight away, then sent to claude-profile (memory/phone/) when there's a connection."
       } Don't put passwords or tokens in notes.</p>
+      </fieldset>
     </form>`
 }
 
