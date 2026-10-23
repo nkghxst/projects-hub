@@ -129,7 +129,7 @@ export function noteCard(n               , isQueued         , hold              
           : ` · saved on ${deviceName()}, waiting to send to ${dest}`
   const id = 'id' in n ? n.id : ''
   const hasPictures = ('text' in n ? parseNote(n.path, n.text).attachments : n.attachments)?.length
-  const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile) && (!hasPictures || Boolean(state.source?.createPhoto))
+  const canPlace = (hold === 'other-repo' || hold === 'unknown-repo') && Boolean(state.source?.createFile) && (!hasPictures || (Boolean(state.source?.createPhoto) && n.path.startsWith(`${state.source?.notesDir ?? 'memory/phone'}/`)))
   const actions = isQueued
     ? `<div class="actions">
         ${canPlace ? `<button class="link" data-action="send-here" data-value="${esc(id)}">Send to ${esc(settings.repo || 'the current repository')}${hold === 'other-repo' ? ' instead' : ''}</button>` : ''}

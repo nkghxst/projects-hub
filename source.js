@@ -61,6 +61,7 @@ import { sharedProjectsFrom, snapshotPath } from './project-snapshot.js'
                                                                              
 
 import { githubPhotos } from './photo-source.js'
+import { checkedPhoto } from './photos.js'
 
                       
                                                            
@@ -137,6 +138,15 @@ export function localSource()         {
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
     notes: async () => (await getJson                   ('/api/notes')).notes,
     notesDir: DESKTOP_NOTES_DIR,
+    createPhoto: async (path, blob) => {
+      if (!path.startsWith(`${DESKTOP_NOTES_DIR}/attachments/`)) throw sourceError('other', 'This connection only writes desktop pictures')
+      const safe = await checkedPhoto(blob, path)
+      const bytes = new Uint8Array(await safe.arrayBuffer())
+      let binary = ''
+      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+      const reply = await postHub                                 ('/api/capture-photo', { path, content: btoa(binary) })
+      if (!reply.ok) throw sourceError(reply.error === 'conflict' ? 'conflict' : 'other', reply.error ?? 'The hub refused the picture')
+    },
     readPhoto: async (path, note) => {
       const res = await fetch('/api/note-photo', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path, note }), cache: 'no-store' })
       if (!res.ok) throw new Error('Picture unavailable; sync this computer and refresh')

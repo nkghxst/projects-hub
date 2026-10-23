@@ -593,20 +593,20 @@ export function parseNote(path        , text        )       {
   }
 }
 
-// Only phone-owned images bound to this note's random ID. Never render arbitrary URLs.
+// Images belong to the same device and random ID as their note. Never render arbitrary URLs.
 export const PHOTO_MAX_BYTES = 2 * 1024 * 1024
 export const PHOTO_MAX_COUNT = 4
 export function isPhotoPath(path        )          {
-  return /^memory\/phone\/attachments\/[a-f0-9]{16}\/[0-3]\.(png|jpg)$/.test(path)
+  return /^memory\/(phone|desktop)\/attachments\/[a-f0-9]{16}\/[0-3]\.(png|jpg)$/.test(path)
 }
 export function parseAttachments(note        , value         )           {
   if (!value) return []
-  const id = /^memory\/phone\/(?:notes|ideas)\/[a-z0-9-]+-([a-f0-9]{16})\.md$/.exec(note)?.[1]
-  if (!id) return []
+  const match = /^memory\/(phone|desktop)\/(?:notes|ideas)\/[a-z0-9-]+-([a-f0-9]{16})\.md$/.exec(note)
+  if (!match) return []
   try {
     const paths          = JSON.parse(value)
     return Array.isArray(paths) && paths.length <= PHOTO_MAX_COUNT && new Set(paths).size === paths.length &&
-      paths.every(p => typeof p === 'string' && isPhotoPath(p) && p.startsWith(`memory/phone/attachments/${id}/`)) ? paths : []
+      paths.every(p => typeof p === 'string' && isPhotoPath(p) && p.startsWith(`memory/${match[1]}/attachments/${match[2]}/`)) ? paths : []
   } catch { return [] }
 }
 

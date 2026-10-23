@@ -367,10 +367,10 @@ export async function saveDraft() {
   }
   const source = state.source
   if (!source?.createFile) return toast('Connect to GitHub in Settings first')
-  if (state.draftPhotos.length && !source.createPhoto) return toast('Pictures can be saved from the phone connection')
+  if (state.draftPhotos.length && !source.createPhoto) return toast('This connection cannot save pictures')
   const id = newQueueId(), generation = state.sourceGeneration, photoGeneration = state.photoGeneration
   const pictures = [...state.draftPhotos]
-  const attachments = pictures.map((p,i) => `memory/phone/attachments/${id}/${i}.${p.extension}`)
+  const attachments = pictures.map((p,i) => `${source.notesDir ?? PHONE_DIR}/attachments/${id}/${i}.${p.extension}`)
   const title = (d.title.trim() || d.body.trim().split('\n')[0] || d.source.trim() || 'Picture note').slice(0, 80)
   const file = formatNote({ ...d, title, attachments }, Date.now(), id, source.notesDir ?? PHONE_DIR)
   const project = d.kind === 'note' ? d.project : ''
@@ -972,7 +972,7 @@ export async function sendHeldHere(id        ) {
   const dest = state.source?.dest
   const generation = state.sourceGeneration
   if (!item || !dest) return
-  if ((parseNote(item.path, item.text).attachments?.length ?? 0) > 0 && !state.source?.createPhoto) return toast('Picture notes need a GitHub connection; this note has not been moved')
+  if ((parseNote(item.path, item.text).attachments?.length ?? 0) > 0 && (!state.source?.createPhoto || !item.path.startsWith(`${state.source.notesDir ?? PHONE_DIR}/`))) return toast('Picture notes must keep their original device folder; this note has not been moved')
   const question =
     item.dest === UNKNOWN_DEST
       ? `Send "${item.title}" to ${settings.repo}? It was saved by an earlier version of the app, which didn't record which repository it was for.\n\n${item.text.slice(0, 400)}`

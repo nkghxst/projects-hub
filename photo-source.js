@@ -31,6 +31,7 @@ export function githubPhotos(contentsUrl                          , headers     
     return checkedPhoto(new Blob(chunks), path)
   }
   async function createPhoto(path        , blob      )                {
+    if (!path.startsWith('memory/phone/attachments/')) fail('other', 'This connection only writes phone pictures')
     const safe = await checkedPhoto(blob, path)
     const bytes = new Uint8Array(await safe.arrayBuffer())
     let binary = ''
