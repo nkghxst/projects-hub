@@ -443,6 +443,9 @@ details.fold:not([open]) { padding-bottom: 10px; }
 .project-art svg, .project-art img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .art-pin { position: absolute; right: 10px; bottom: 10px; border: 0; border-radius: 50%; background: var(--card); width: 32px; height: 32px; padding: 0; font-size: 20px; }
 .art-pin[aria-pressed=true] { background: #254f78; color: white; }
+.art-edit { position: absolute; top: 8px; left: 8px; min-height: 36px; padding: 6px 10px; border: 0; background: var(--card); font-size: 12px; }
+.picture-controls { flex-wrap: wrap; }
+.picture-controls p { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 .collection-project h3 { font: 650 18px/1.3 Anybody,system-ui,sans-serif; margin: 14px 0 7px; letter-spacing: -.02em; }
 .collection-project h3 a { color: var(--ink); }
 .project-summary { font-size: 14px; line-height: 1.5; margin: 0 0 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 3em; }
@@ -508,6 +511,34 @@ details.fold:not([open]) { padding-bottom: 10px; }
 .project-more { font-size: 12px; margin-top: 6px; color: var(--muted); }
 .project-more summary { cursor: pointer; }
 .project-summary { min-height: 0; margin-bottom: 9px; }
+.card-status { margin-bottom: 12px; }
+.card-status .project-summary { -webkit-line-clamp: 3; margin-bottom: 5px; overflow-wrap: anywhere; }
+.card-status[data-expanded=true] .project-summary { display: block; overflow: visible; }
+.summary-source, .summary-toggle { font-size: 12px; line-height: 1.5; }
+.summary-source a { color: var(--muted); }
+.summary-toggle { padding: 4px 0; }
+.card-ask { border-left: 3px solid #b6893c; padding: 0 0 0 10px; margin: 10px 0 14px; font-size: 13px; line-height: 1.5; }
+.card-ask p { margin: 4px 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.card-ask a { font-size: 12px; }
+.card-ask.possible { border-color: var(--line); }
+.asks-focused .card-ask p { display: block; overflow: visible; }
+.mobile-view-options { display: none; }
+.collection-options { display: contents; }
+.collection-option-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.collection-options .saved-views { flex-basis: 100%; margin: 0; }
+@media (max-width: 760px) {
+  .collection-heading h1 { font-size: 25px; margin: 8px 0; max-width: none; }
+  .collection-heading p { margin-bottom: 12px; font-size: 13px; }
+  .collection-filters { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; margin-bottom: 10px; padding-bottom: 3px; }
+  .collection-filters button { flex-shrink: 0; min-height: 40px; }
+  .collection-tools { gap: 8px; padding-bottom: 12px; margin-bottom: 18px; }
+  .collection-tools > input { flex: 1 1 180px; min-height: 40px; }
+  .mobile-view-options { display: block; min-height: 40px; }
+  .collection-options { display: none; flex: 1 1 100%; }
+  .collection-options[data-open=true] { display: block; }
+  .collection-option-controls { gap: 10px; margin-bottom: 14px; }
+  .collection-option-controls :is(select,button) { min-height: 40px; }
+}
 .collection-project h3 { margin-top: 13px; }
 .collection-project .project-art { aspect-ratio: 2.25; }
 .collection-sidebar { background: var(--surface); }
@@ -538,3 +569,27 @@ details.fold:not([open]) { padding-bottom: 10px; }
 .annotation-editor .actions { flex-wrap:wrap }
 .annotation-status { overflow-wrap:anywhere }
 @media(max-width:700px) { .notes-gallery {grid-template-columns:1fr} .annotation-editor {padding:12px} .annotation-coordinates {grid-template-columns:repeat(2,minmax(0,1fr))} }
+
+/* The request stays the card's focal point; document controls are a quiet utility row. */
+.repo-card-actions { display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 6px }
+.repo-card-actions button { font-size:12px;padding:5px 7px;min-height:36px }
+.repo-reader { width:min(820px,calc(100vw - 24px));max-width:none;max-height:calc(100dvh - 24px);margin:auto;padding:24px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;overflow-wrap:anywhere }
+.repo-reader::backdrop { background:#0008 }
+.repo-heading { display:flex;align-items:start;gap:12px;justify-content:space-between;margin-bottom:16px }
+.repo-heading > button { flex-shrink:0;white-space:nowrap }
+.repo-heading h2 { font:650 24px/1.25 Anybody,system-ui,sans-serif;margin:0;min-width:0 }
+.repo-reader label { display:grid;gap:6px;margin:12px 0;min-width:0 }
+.repo-reader :is(input,select) { width:100%;min-width:0 }
+.repo-reader :is(button,select,input) { min-height:40px }
+.repo-reader .actions { display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 }
+.repo-reader fieldset { min-width:0;border:1px solid var(--line);border-radius:7px;padding:12px 16px;margin:16px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px }
+.repo-reader fieldset label:last-of-type { grid-column:1/-1 }
+.repo-reader fieldset button { justify-self:start }
+.repo-provenance { display:grid;grid-template-columns:150px minmax(0,1fr);gap:6px 12px;border-block:1px solid var(--line);padding:16px 0;font-size:13px }
+.repo-provenance dt { color:var(--muted) }
+.repo-provenance dd { margin:0;min-width:0 }
+.repo-provenance code { overflow-wrap:anywhere }
+.repo-document-body { line-height:1.7;max-width:72ch }
+.repo-document-body :is(pre,table) { max-width:100%;overflow:auto;display:block }
+.repo-read-status { margin:16px 0;color:var(--muted) }
+@media(max-width:600px) { .repo-reader {padding:16px}.repo-reader fieldset {grid-template-columns:minmax(0,1fr);padding:12px}.repo-heading h2 {font-size:20px}.repo-provenance {grid-template-columns:108px minmax(0,1fr);gap:6px 10px;font-size:12px} }

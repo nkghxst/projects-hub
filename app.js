@@ -1,6 +1,8 @@
 import { beginAnnotation } from './photo-annotation.js'
-import { collectionAction, collectionLayout, loadCollectionCovers, saveNamedView, closeEditor } from './collection-ui.js'
+import { collectionAction, collectionLayout, loadCollectionCovers, saveNamedView, closeEditor, revealSelectedFilter } from './collection-ui.js'
 import { collectionEpochKey } from './collection.js'
+import { projectKey } from './collection.js'
+import { openRepoReader, openRepoConnection, closeRepoReader, reconcileRepoReader } from './repo-reader-ui.js'
 // Projects hub web UI. The same page runs on the desktop (served by app/server.ts, reading the local clone, with
 // live Codeg work and summaries) and on the phone (published on GitHub Pages, reading claude-profile from GitHub
 // and capturing notes). Which one it is comes from whether the hub server answers.
@@ -90,7 +92,7 @@ function renderNav() {
   nav.innerHTML = `
     <a class="button wide" href="#/inbox" title="Notes and ideas"${route === 'inbox' ? ' aria-current="page"' : ''}>Notes${count > 0 ? ` (${count})` : ''}</a>
     ${state.source?.createFile ? `<a class="button primary wide" href="${captureHref()}">✎ Note</a>` : ''}
-    ${state.mode === 'github' ? `<a class="button" href="#/settings" title="Settings" aria-label="Settings"${route === 'settings' ? ' aria-current="page"' : ''}>⚙</a>` : ''}
+    <a class="button" href="#/settings" title="Settings" aria-label="Settings"${route === 'settings' ? ' aria-current="page"' : ''}>⚙</a>
     <button data-action="refresh" title="Refresh (shortcut: r)" aria-label="Refresh">↻</button>`
 }
 
@@ -111,7 +113,8 @@ function renderTabbar() {
 // A redraw (say, data arriving mid-typing) keeps the cursor where it was: same field, same selection.
 function focusSnapshot() {
   const el = document.activeElement
-  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) || !el.id) return null
+  const isStatusButton = el instanceof HTMLButtonElement && (['collection-status', 'collection-options', 'collection-filter'].includes(el.dataset.action ?? '') || el.dataset.action?.startsWith('repo-'))
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || isStatusButton) || !el.id) return null
   // Only these keep a text cursor; selects and other input types have none.
   const hasCursor = el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'password'].includes(el.type))
   const field = el                    
@@ -133,6 +136,7 @@ function restoreFocus(snap                                  ) {
 }
 
 function render() {
+  reconcileRepoReader()
   collectionLayout()
   setGlossary(state.data?.glossary ?? [])
   const focus = focusSnapshot()
@@ -189,6 +193,7 @@ function render() {
 
   renderTermPop()
   restoreFocus(focus)
+  revealSelectedFilter()
   // The usage button is redrawn with the bar; keep keyboard focus on it.
   if (isUsageFocused) (document.querySelector('[data-action="usage-toggle"]')                      )?.focus()
 }
@@ -248,6 +253,12 @@ document.addEventListener('click', async event => {
   if (!target) return
   const action = target.dataset.action
   const value = target.dataset.value ?? ''
+  if (action === 'repo-connection') { openRepoConnection(target.id); return }
+  if (action === 'repo-roadmap' || action === 'repo-docs') {
+    const p=state.data?.projects.find(p=>p.file===value)
+    if(p&&state.source)openRepoReader({scope:{dest:state.source.dest,project:projectKey(p,state.data?.sharedProjects)},name:p.name,repos:p.repos,record:p.file},action==='repo-roadmap'?'roadmap':'docs',target.id)
+    return
+  }
   if (action === 'collection-nav-pinned') { location.hash = '#/'; await collectionAction('collection-filter','pinned'); return }
   if (action && (action.startsWith('collection-') || action === 'identity-edit') && await collectionAction(action, value)) { if(action === 'collection-apply' || action === 'collection-clear') setFilters({...state.filters}); return }
   if (action === 'machine') setFilters({ machine: value                       })
@@ -489,7 +500,7 @@ window.addEventListener('appinstalled', () => {
 })
 state.isInstalled = globalThis.matchMedia?.('(display-mode: standalone)').matches ?? false
 
-window.addEventListener('hashchange', () => { closeEditor(); void route() })
+window.addEventListener('hashchange', () => { closeEditor(); closeRepoReader(false); void route() })
 window.addEventListener('online', () => void refresh())
 window.addEventListener('resize', () => {
   if (currentRoute().name === 'list') render()

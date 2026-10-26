@@ -93,11 +93,18 @@ export function termsOnce   (draw         )    {
   }
 }
 
-export function renderMarkdown(md        , resolve              )         {
-  return termsOnce(() => renderBlocks(md, resolve))
+// Optional bounds let external documents fall back to plaintext before recursive work grows.
+                                                                
+export function renderMarkdown(md        , resolve              , limits                )         {
+  const budget = limits ? { left:limits.maxWork, maxDepth:limits.maxDepth } : undefined
+  return termsOnce(() => renderBlocks(md, resolve, budget, 0))
 }
 
-function renderBlocks(md        , resolve              )         {
+function renderBlocks(md        , resolve              , budget                               , depth = 0)         {
+  if (budget) {
+    budget.left -= md.length
+    if (depth > budget.maxDepth || budget.left < 0) throw new Error('Markdown formatting limit exceeded')
+  }
   const lines = md.replace(/\r/g, '').split('\n')
   const out           = []
   let i = 0
@@ -136,7 +143,7 @@ function renderBlocks(md        , resolve              )         {
     } else if (trimmed.startsWith('>')) {
       const quote           = []
       while (i < lines.length && lines[i].trim().startsWith('>')) quote.push(lines[i++].trim().replace(/^>\s?/, ''))
-      out.push(`<blockquote>${renderBlocks(quote.join('\n'), resolve)}</blockquote>`)
+      out.push(`<blockquote>${renderBlocks(quote.join('\n'), resolve, budget, depth + 1)}</blockquote>`)
     } else if (LIST_ITEM.test(line)) {
       // Nested lists by indent; continuation lines join the item above.
       const items                                                      = []
@@ -152,6 +159,7 @@ function renderBlocks(md        , resolve              )         {
       const stack           = []
       let html = ''
       for (const item of items) {
+        if (budget && item.depth > budget.maxDepth) throw new Error('Markdown formatting limit exceeded')
         while (stack.length > item.depth + 1) html += `</li></${stack.pop()}>`
         if (stack.length === item.depth + 1) html += '</li>'
         while (stack.length < item.depth + 1) {

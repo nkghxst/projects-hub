@@ -9,6 +9,7 @@ import { pageOwner, tokenTemplateUrl } from './source.js'
 import { deviceName, state, UNKNOWN_DEST } from './state.js'
 import { collectionProjects, projectMembers } from './collection-ui.js'
 import { projectKey } from './collection.js'
+import { repoSettingsMarkup } from './repo-reader-ui.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
@@ -161,7 +162,7 @@ function displaySettings()         {
 
 export function renderSettings()         {
   if (state.mode === 'local') {
-    return `<h2 class="title">Settings</h2><p>The desktop app reads your local claude-profile clone and needs no connection settings.</p>${displaySettings()}<p><a href="#/">← All projects</a></p>`
+    return `<h2 class="title">Settings</h2><p>The desktop app reads your local claude-profile clone without a profile connection.</p>${displaySettings()}${repoSettingsMarkup()}<section class="card"><p>Remove all local Hub data, including repository mappings, tokens and saved private documents.</p><button type="button" class="link danger" data-action="remove-all">Remove all hub data from this device…</button></section><p><a href="#/">← All projects</a></p>`
   }
   // What's being typed survives redraws; it only replaces the saved settings on Save.
   const d = state.settingsDraft
@@ -184,6 +185,7 @@ export function renderSettings()         {
       pick <strong>Only select repositories</strong> → <code>claude-profile</code>, generate it, then paste it above.
       Revoke the old one on GitHub (Settings → Developer settings → Fine-grained tokens), and revoke this one there if the phone is lost.</p>
     </section>
+    ${repoSettingsMarkup()}
     <section class="card">
       <div class="label strong">This device</div>
       <p class="small">Forget token keeps saved notes and the offline copy. This removes everything the app keeps here: token, settings, offline copies and unsent notes.</p>

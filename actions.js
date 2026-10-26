@@ -1,4 +1,5 @@
 import { cancelAnnotation } from './photo-annotation.js'
+import { closeRepoReader } from './repo-reader-ui.js'
 import { writeReceipt, removeUnfinishedReceipt } from './capture-receipts.js'
 import { projectKey, recordVisit, resetAllCollections } from './collection.js'
 import { persistCollectionFilters, closeEditor, collectionLayout } from './collection-ui.js'
@@ -9,7 +10,7 @@ import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, currentMetadataText
 import { effectiveDraft, quickAddHtml, stripQuickAdd } from './quick-add.js'
 import { captureHref, currentRoute, recordHref } from './routes.js'
 import { diffPrints, initSeen, markSeen, seenPrints } from './seen.js'
-import { githubSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
+import { githubSource, localSource, snapshotAge, snapshotKeys, snapshotProjects } from './source.js'
                                          
 import {
   changed,
@@ -123,6 +124,7 @@ export async function loadRecord(path        ) {
 
 // Replaces the active source: stops its requests, invalidates work started for it, and clears what it showed.
 function replaceSource(next               ) {
+  closeRepoReader(false)
   cancelAnnotation()
   clearPhotoViews()
   clearDraftPhotos()
@@ -971,6 +973,8 @@ export async function removeAllData() {
   if (!confirm(`Remove the token, settings, offline copies and unsent notes from this device?${warning}`)) return
   closeEditor()
   replaceSource(null)
+  const resetGeneration = state.sourceGeneration
+  const resetMode = state.mode
   localStorage.setItem('hub.epoch', `${Date.now()}-${Math.random().toString(16).slice(2)}`)
   try { await resetAllCollections() } catch (error) { state.settingsMessage = `Reset stopped: ${errorText(error)}. Retry or clear this site's data in browser settings.`; changed(); return }
   const keys           = [...snapshotKeys()]
@@ -1000,6 +1004,12 @@ export async function removeAllData() {
     }
   }
   state.settingsMessage = `The token, settings, offline copies and unsent notes have been removed from this device.${cacheNote}${photoWarning} The token itself stays valid until you revoke it on GitHub.`
+  // Desktop reads need no forgotten credentials. Keep the reset's fresh controller and
+  // generation; a source selected while asynchronous cleanup ran must win instead.
+  if (resetMode === 'local' && state.mode === resetMode && state.sourceGeneration === resetGeneration && !state.source) {
+    state.source = localSource()
+    await loadAll()
+  }
   changed()
 }
 

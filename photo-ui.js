@@ -3,6 +3,7 @@ import { parseNote, PHOTO_MAX_COUNT, isPhotoPath } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { state, changed, toast } from './state.js'
 import { photoStore, preparePhoto, checkedPhoto } from './photos.js'
+import { projectKey, collectionEpoch, readIdentity, saveIdentity, saveCover, deleteCover } from './collection.js'
 
 const urls = new Set        ()
 let viewer                           = null
@@ -48,7 +49,7 @@ export function notePictures(n                                                  
   const paths = n.text ? parseNote(n.path, n.text).attachments ?? [] : n.attachments ?? []
   return paths.length ? `<div class="picture-grid">${paths.filter(isPhotoPath).map((p,i) => `<button type="button" class="note-picture" data-action="photo-view" data-photo="${esc(p)}" data-note="${esc(n.path)}" data-dest="${esc(n.dest ?? state.source?.dest ?? '')}" aria-label="View picture ${i+1}">View picture ${i+1}</button>`).join('')}</div>` : ''
 }
-export function enlargePicture(url        , annotate             ) {
+export function enlargePicture(url        , annotate             , cover                      ) {
   viewer?.remove()
   const dialog = document.createElement('dialog')
   dialog.className = 'picture-viewer'
@@ -59,6 +60,11 @@ export function enlargePicture(url        , annotate             ) {
   zoom.addEventListener('click', () => { const full = img.classList.toggle('full-size'); zoom.textContent = full ? 'Fit picture' : 'Zoom in' })
   const controls = document.createElement('div'); controls.className = 'picture-controls'; controls.append(close, zoom)
   if (annotate) { const edit=document.createElement('button');edit.textContent='Annotate as new note';edit.onclick=()=>{dialog.close();annotate()};controls.append(edit) }
+  if (cover) {
+    const use=document.createElement('button'),status=document.createElement('p');use.textContent='Use as project cover';status.setAttribute('role','status')
+    use.onclick=async()=>{use.disabled=true;status.textContent='Saving cover on this device…';try{await cover();dialog.close()}catch(e){status.textContent=e instanceof Error?e.message:'Could not save cover'}finally{use.disabled=false}}
+    controls.append(use,status)
+  }
   dialog.append(controls, img); document.body.append(dialog); viewer = dialog; dialog.showModal()
 }
 // No token in image URLs: fetch through the authenticated source then use a short-lived blob URL.
@@ -82,11 +88,31 @@ export async function viewPicture(button             , enlarge = true) {
       if(source!==state.source||generation!==state.sourceGeneration||dest!==state.source?.dest||!state.notes.some(n=>n.path===note&&(n.attachments??[]).includes(path)))return
       void beginAnnotation(picture,{note:{path:savedNote.path,project:savedNote.project,title:savedNote.title,source:savedNote.source,photo:path},dest})
     } : undefined
+    const project = savedNote && state.data?.projects.find(p=>p.file===savedNote.project)
+    const cover = project ? async()=>{
+      const key=projectKey(project,state.data?.sharedProjects),epoch=collectionEpoch(dest),before=readIdentity(dest,key)
+      const valid=()=>{
+        const current=state.data?.projects.find(p=>p.file===project.file)
+        if(source!==state.source||generation!==state.sourceGeneration||dest!==state.source?.dest||epoch!==collectionEpoch(dest)||!current||projectKey(current,state.data?.sharedProjects)!==key||!state.notes.some(n=>n.path===note&&n.project===project.file&&(n.attachments??[]).includes(path)))throw Error('Stopped: source or collection changed. Reopen the picture.')
+      }
+      let id                 ,committed=false
+      try {
+        valid();id=await saveCover(dest,key,new File([picture],'note-cover',{type:picture.type}));valid()
+        if(JSON.stringify(readIdentity(dest,key))!==JSON.stringify(before))throw Error('Appearance changed while saving. Reopen the picture and try again.')
+        saveIdentity(dest,key,{...before,cover:id});committed=true
+        if(before.cover)await deleteCover(dest,before.cover)
+        changed();toast('Project cover saved on this device.')
+      } catch(e) {
+        if(id&&!committed)await deleteCover(dest,id)
+        if(committed){changed();toast('Cover saved, but old cover cleanup failed. Reset collection preferences can clear all local covers and preferences for this destination.');return}
+        throw e
+      }
+    } : undefined
     const url = URL.createObjectURL(blob); urls.add(url)
     const img = document.createElement('img'); img.src = url; img.alt = button.getAttribute('aria-label') ?? 'Note picture'
-    button.replaceChildren(img); button.onclick = () => enlargePicture(url, annotate)
+    button.replaceChildren(img); button.onclick = () => enlargePicture(url, annotate, cover)
     button.removeAttribute('data-action')
-    if (enlarge) enlargePicture(url, annotate)
+    if (enlarge) enlargePicture(url, annotate, cover)
   } catch (error) {
     button.textContent = 'Picture unavailable — tap to retry'
     if (enlarge) toast(error instanceof Error ? error.message : 'Could not load picture')

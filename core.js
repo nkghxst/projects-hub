@@ -695,12 +695,22 @@ export function parseLogEntries(text        , limit        )              {
 // "Label: text" as bold (**Label:**), plain (Label:) or a list item. When the label line itself is empty, the list
 // under it is the value ("**Next action:**" followed by numbered steps), joined with semicolons.
 const PLAIN_LABEL = /^\s*(?:[-*+]\s+)?([A-Z][^:*`[\]()]{0,32}):\s*(.*)$/
-function labelled(text        , label        )         {
+function labelled(text        , label        , keepWrapped = false)         {
   const lines = text.replace(/\r/g, '').split('\n')
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(LABELLED) ?? lines[i].match(PLAIN_LABEL)
     if (!m || !label.test(m[1].trim())) continue
-    if (m[2].trim() !== '') return m[2].trim()
+    if (m[2].trim() !== '') {
+      const parts = [m[2].trim()]
+      if (keepWrapped) for (let j = i + 1; j < lines.length; j++) {
+        const line = lines[j]
+        // A Markdown paragraph may wrap with or without indentation. Stop at
+        // a field, list item, heading, fence or blank line, never the next fact.
+        if (!line.trim() || /^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|`{3}|~{3})/.test(line) || LABELLED.test(line) || PLAIN_LABEL.test(line)) break
+        parts.push(line.trim())
+      }
+      return parts.join(' ')
+    }
     // The list under it: bullets or numbers, indented or not, with wrapped lines joined to their item. It ends at a
     // blank line, plain text, or a sibling bold field ("- **Pipeline:**").
     const items           = []
@@ -1025,7 +1035,7 @@ export function recordFacts(record        , rowState        , owner        )    
   const updated = currentBody.split('\n').find(l => /\*\*Updated:?\*\*/i.test(l)) ?? ''
   const fromUpdated = providerIn(updated)
   const who = fromTitle.provider ? fromTitle : fromUpdated
-  const stateLine = labelled(currentBody, /^(?:status|state)\b/i)
+  const stateLine = labelled(currentBody, /^(?:status|state)\b/i, true)
   const said = `${plain(rowState)}\n${stateLine}`
   const flags = FLAGS.filter(f => affirms(f.test, plain(rowState))).map(f => f.flag)
   return {

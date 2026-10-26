@@ -1,6 +1,6 @@
 // Device-local presentation. Source records and the note queue never pass through these writes.
                                         
-import { aliasesFor, sorter, SORTS, ageLabel, staleCheckpoint } from './core.js'
+import { aliasesFor, sorter, SORTS, ageLabel, staleCheckpoint, textOf } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { state, changed, isPinned, errorText } from './state.js'
 import { recordHref } from './routes.js'
@@ -11,6 +11,7 @@ import { groupAsks } from './asks.js'
 import { collectionEpoch, projectKey, readIdentity, saveIdentity, removeIdentity, projectArt, ICONS, COLOURS, readViews, saveViews, readVisits, saveCover, readCover, deleteCover, resetCollection, readLayout, saveLayout } from './collection.js'
                                                                
                                        
+import { repoCardControls } from './repo-reader-ui.js'
 
 let destination = '', layoutEpoch = '', initialised = false, layout                 = defaults(), problem = ''
 function defaults()                 { return { name: 'Current view', query: '', machine: 'all', filter: 'all', grouped: false, compact: false } }
@@ -42,11 +43,36 @@ export function collectionProjects(data      )            {
 export function projectAsks(p         , data = state.data) {
   return groupAsks(projectMembers(p, data).flatMap(q => q.waits.map(w => ({ ...w, where: `${q.file} — ${w.where}` }))))
 }
+// Quote the source; never manufacture a short status by dropping qualifications.
+function cardStatus(p         , data      )         {
+  const current = Boolean(p.stateLine?.trim())
+  const text = textOf(current ? p.stateLine : p.state || '').replace(/\s+/g, ' ').trim()
+  const key = `card-status:${projectKey(p, data.sharedProjects)}`, expanded = state.openDetails.has(key)
+  const source = current ? 'Current checkpoint' : text ? 'Index summary · no checkpoint status' : ''
+  return `<div class="card-status" data-expanded="${expanded}"><p class="project-summary">${esc(text || 'No status recorded.')}</p>
+    ${text ? `<div class="summary-source"><a href="${recordHref(p.file)}">${source}</a></div><button id="${esc(`card-status-toggle:${encodeURIComponent(p.file)}`)}" class="link summary-toggle" data-action="collection-status" data-value="${esc(p.file)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Read full'} status for ${esc(p.name)}">${expanded ? 'Less' : 'Read full status'}</button>` : ''}</div>`
+}
+function cardAsk(p         , data      )         {
+  const asks = projectAsks(p,data), stated = asks.filter(a=>a.isStated), shown = stated.length ? stated : asks
+  if (!shown.length) return ''
+  const kind = stated.length ? 'stated' : 'possible'
+  return `<div class="card-ask ${kind}"><strong>${stated.length ? 'Needs you' : 'Possible ask'}</strong><p>${esc(shown[0].text)}</p><a href="${recordHref(p.file)}">View ${shown.length} ${kind} ask${shown.length===1?'':'s'} &amp; sources</a></div>`
+}
 export function identityArt(p         , small = false, data = state.data)         {
   const dest = state.source?.dest ?? '', id = readIdentity(dest, projectKey(p, data?.sharedProjects))
   return `<span class="project-art${small ? ' mini-art' : ''}"${id.cover ? ` data-cover="${esc(id.cover)}"` : ''}>${projectArt(id)}</span>`
 }
 let urls           = [], renderGeneration = 0
+export function revealSelectedFilter()       {
+  const row = document.querySelector             ('.collection-filters')
+  const focus = document.activeElement
+  const selected = focus instanceof HTMLElement && row?.contains(focus) ? focus : row?.querySelector             ('[aria-pressed=true]')
+  if (!row || !selected) return
+  const outer = row.getBoundingClientRect(), inner = selected.getBoundingClientRect()
+  // Only move this horizontal strip; never jump the page on a data refresh.
+  if (inner.left < outer.left) row.scrollLeft -= outer.left - inner.left
+  else if (inner.right > outer.right) row.scrollLeft += inner.right - outer.right
+}
 export async function loadCollectionCovers()                {
   const generation = ++renderGeneration, dest = state.source?.dest, sourceGeneration = state.sourceGeneration
   urls.forEach(url => URL.revokeObjectURL(url)); urls = []
@@ -66,7 +92,7 @@ export function renderCollection(data      )         {
   const all = collectionProjects(data), names = [f.query.toLowerCase(), ...aliasesFor(f.query.trim(), data.aliases ?? []).map(s => s.toLowerCase())]
   const matches = (p         , filter = view.filter) => {
     const members = projectMembers(p, data)
-    return (filter === 'all' || (filter === 'waiting' && members.some(q => q.waits.length)) || (filter === 'changed' && members.some(q => changeOf(q) !== 'none')) || (filter === 'pinned' && members.some(isPinned)) || (filter === 'recent' && Object.hasOwn(visits, projectKey(p, data.sharedProjects))))
+    return (filter === 'all' || (filter === 'waiting' && members.some(q => q.waits.some(w=>w.isStated))) || (filter === 'changed' && members.some(q => changeOf(q) !== 'none')) || (filter === 'pinned' && members.some(isPinned)) || (filter === 'recent' && Object.hasOwn(visits, projectKey(p, data.sharedProjects))))
   }
   const shown = all.filter(p => matches(p) && projectMembers(p,data).some(q => f.machine === 'all' || q.machine === f.machine) && (!f.query.trim() || projectMembers(p,data).some(q => names.some(n => `${q.name} ${q.state} ${q.next} ${q.waits.map(w=>w.text).join(' ')}`.toLowerCase().includes(n))))).sort(view.filter === 'recent' ? (a,b) => (visits[projectKey(b,data.sharedProjects)] ?? 0) - (visits[projectKey(a,data.sharedProjects)] ?? 0) : sorter(f.sort))
   const card = (p         ) => {
@@ -74,18 +100,22 @@ export function renderCollection(data      )         {
     const stale = staleCheckpoint(p,members.find(q=>q!==p),data.now,state.staleDays)
     const noteCount = members.reduce((n,q)=>n+notesFor(q.file).length+queuedFor(q.file).length,0)
     const status = { waiting:'Needs you', active:'In progress', hold:'On hold or blocked', done:'Done', unstated:'State not stated' }[p.status]
-    return `<article class="collection-project" aria-label="${esc(p.name)}"><div class="art-wrap"><a href="${recordHref(p.file)}" aria-label="Open ${esc(p.name)}">${identityArt(p,false,data)}</a><button class="art-pin" data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-label="Pin ${esc(p.name)}" aria-pressed="${members.some(isPinned)}">${members.some(isPinned) ? '★' : '☆'}</button></div>
-      <h3><a href="${recordHref(p.file)}">${esc(p.name)}</a></h3><p class="project-summary">${esc(p.state)}</p><div class="project-status"><span class="chip status-${p.status}">${status}</span>${members.some(q=>changeOf(q)!=='none') ? '<span class="chip changed">Changed</span>' : ''}</div>
-      <div class="project-evidence"><span>Checkpoint ${esc(ageLabel(p.checkedMs,data.now,false))}</span>${snapshotChip(data.sharedProjects,p.file) || `<span>${members.map(q=>q.machine === 'desktop' ? 'Desktop record' : 'Laptop record').join(' · ')}</span>`}</div>
+    const ask = cardAsk(p,data)
+    return `<article class="collection-project" aria-label="${esc(p.name)}"><div class="art-wrap"><a href="${recordHref(p.file)}" aria-label="Open ${esc(p.name)}">${identityArt(p,false,data)}</a><button class="art-edit" data-action="identity-edit" data-value="${esc(p.file)}" aria-label="Change artwork for ${esc(p.name)}">Artwork</button><button class="art-pin" data-action="pin" data-value="${esc(p.file)}" data-pair="${esc(p.pairFile)}" aria-label="Pin ${esc(p.name)}" aria-pressed="${members.some(isPinned)}">${members.some(isPinned) ? '★' : '☆'}</button></div>
+      <h3><a href="${recordHref(p.file)}">${esc(p.name)}</a></h3>${ask}${cardStatus(p,data)}<div class="project-status">${p.status==='waiting'&&ask?'':`<span class="chip status-${p.status}">${status}</span>`}${members.some(q=>changeOf(q)!=='none') ? '<span class="chip changed">Changed</span>' : ''}</div>
+      <div class="project-evidence"><span>Checkpoint ${esc(ageLabel(p.checkedMs,data.now,false))}</span>${snapshotChip(data.sharedProjects,p.file) || `<span>${members.map(q=>q.machine === 'desktop' ? 'Desktop record' : 'Laptop record').join(' · ')}</span>`}</div>${p.file?repoCardControls(p.file):''}
       <details class="project-more" data-key="${esc(`project-details:${projectKey(p,data.sharedProjects)}`)}"${state.openDetails.has(`project-details:${projectKey(p,data.sharedProjects)}`) ? ' open' : ''}><summary>Details &amp; appearance</summary><div class="project-sources">${members.map(q=>`<a href="${recordHref(q.file)}">${q.machine === 'desktop' ? 'Desktop' : 'Laptop'} record</a>`).join(' · ')}</div><p class="small muted">${esc(p.state)}</p>${providerTag(p)}${chips(p)}${stale === null ? '' : `<p class="small muted">Latest recorded checkpoint is ${stale} days old${state.isOffline ? ' in this saved copy' : ''}</p>`}${noteCount ? `<p class="small">${noteCount} open or queued notes</p>` : ''}<button class="link appearance" data-action="identity-edit" data-value="${esc(p.file)}" aria-label="Appearance for ${esc(p.name)}">Appearance${identity.group ? ` · ${esc(identity.group)}` : ''}</button></details></article>`
   }
   const groups = new Map                  ()
   for (const p of shown) { const name = view.grouped ? readIdentity(dest,projectKey(p,data.sharedProjects)).group || 'Ungrouped' : ''; groups.set(name,[...(groups.get(name) ?? []),p]) }
-  return `<section class="collection" aria-label="Project collection"><header class="collection-heading"><h1>Everything you’re making.</h1><p class="muted">${all.length} project${all.length === 1 ? '' : 's'} in your collection.</p></header>
-    <div class="collection-filters" role="group" aria-label="Collection filters">${([['all','All projects'],['waiting','Needs you'],['changed','Changed'],['pinned','Pinned'],['recent','Recent']]         ).map(([key,label])=>`<button data-action="collection-filter" data-value="${key}" aria-pressed="${view.filter===key}">${label} <span>${all.filter(p=>matches(p,key)).length}</span></button>`).join('')}</div>
-    <div class="toolbar collection-tools"><input id="query" type="search" aria-label="Search projects and record text" placeholder="Find a project or record…" value="${esc(f.query)}" autocomplete="off"><label>Machine <select id="collection-machine">${(['all','desktop','laptop']         ).map(m=>`<option value="${m}"${f.machine===m?' selected':''}>${m==='all'?'Both machines':m==='desktop'?'Desktop':'Laptop'}</option>`).join('')}</select></label><label class="sort">Sort <select id="sort">${SORTS.map(s=>`<option value="${s.value}"${f.sort===s.value?' selected':''}>${esc(s.label)}</option>`).join('')}</select></label><button data-action="collection-group" aria-pressed="${view.grouped}">Group</button><button data-action="collection-compact" aria-pressed="${view.compact}">Compact</button></div>
+  const optionsOpen = state.openDetails.has('collection-options')
+  const activeOptions = Number(f.machine !== 'all') + Number(f.sort !== 'checkpoint') + Number(view.grouped) + Number(view.compact)
+  return `<section class="collection${view.filter==='waiting'?' asks-focused':''}" aria-label="Project collection"><header class="collection-heading"><h1>Everything you’re making.</h1><p class="muted">${all.length} project${all.length === 1 ? '' : 's'} in your collection.</p></header>
+    <div class="collection-filters" role="group" aria-label="Collection filters">${([['all','All projects'],['waiting','Needs you'],['changed','Changed'],['pinned','Pinned'],['recent','Recent']]         ).map(([key,label])=>`<button id="collection-filter-${key}" data-action="collection-filter" data-value="${key}" aria-pressed="${view.filter===key}">${label} <span>${all.filter(p=>matches(p,key)).length}</span></button>`).join('')}</div>
+    <div class="toolbar collection-tools"><input id="query" type="search" aria-label="Search projects and record text" placeholder="Find a project or record…" value="${esc(f.query)}" autocomplete="off"><button id="collection-options-toggle" class="mobile-view-options" data-action="collection-options" aria-controls="collection-options" aria-expanded="${optionsOpen}">View options${activeOptions ? ` · ${activeOptions} active` : ''}</button>
+    <div id="collection-options" class="collection-options" data-open="${optionsOpen}"><div class="collection-option-controls"><label>Machine <select id="collection-machine">${(['all','desktop','laptop']         ).map(m=>`<option value="${m}"${f.machine===m?' selected':''}>${m==='all'?'Both machines':m==='desktop'?'Desktop':'Laptop'}</option>`).join('')}</select></label><label class="sort">Sort <select id="sort">${SORTS.map(s=>`<option value="${s.value}"${f.sort===s.value?' selected':''}>${esc(s.label)}</option>`).join('')}</select></label><button data-action="collection-group" aria-pressed="${view.grouped}">Group</button><button data-action="collection-compact" aria-pressed="${view.compact}">Compact</button></div>
     <details class="saved-views"><summary>Saved views &amp; local preferences</summary><p class="muted">Appearance, groups, recent visits and saved views stay on this device, for this destination only.</p><form id="save-view"><label>View name <input name="view-name" maxlength="80" required></label><button>Save view</button></form>${readViews(dest).map((v,i)=>`<div class="saved-view"><button data-action="collection-apply" data-value="${i}">${esc(v.name)}</button><button data-action="collection-delete" data-value="${i}" aria-label="Delete view ${esc(v.name)}">Delete</button></div>`).join('')}<button data-action="collection-reset">Reset collection preferences</button></details>
-    ${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<div class="collection-groups${view.compact?' compact':''}">${shown.length ? [...groups].map(([name,rows])=>`<section class="collection-group">${name?`<h2>${esc(name)} <span class="muted">${rows.length}</span></h2>`:''}<div class="project-grid">${rows.map(card).join('')}</div></section>`).join('') : '<p>No projects match this view. <button data-action="collection-clear">Clear filters</button></p>'}</div></section>`
+    </div></div>${view.filter==='waiting'?'<p class="small muted">Only projects with explicitly stated requests appear in this filtered collection. Observation age does not create a request.</p>':''}${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<div class="collection-groups${view.compact?' compact':''}">${shown.length ? [...groups].map(([name,rows])=>`<section class="collection-group">${name?`<h2>${esc(name)} <span class="muted">${rows.length}</span></h2>`:''}<div class="project-grid">${rows.map(card).join('')}</div></section>`).join('') : '<p>No projects match this view. <button data-action="collection-clear">Clear filters</button></p>'}</div></section>`
 }
 
 let editor                           = null, editorToken = 0
@@ -128,6 +158,8 @@ export async function collectionAction(action        , value        )           
   collectionLayout()
   const actionDest = destination, actionGeneration = state.sourceGeneration
   try {
+    if (action === 'collection-options') { const key='collection-options'; if(state.openDetails.has(key)) state.openDetails.delete(key); else state.openDetails.add(key); changed(); return true }
+    if (action === 'collection-status') { const p = state.data?.projects.find(p=>p.file===value); if (p) { const key=`card-status:${projectKey(p,state.data?.sharedProjects)}`; if(state.openDetails.has(key)) state.openDetails.delete(key); else state.openDetails.add(key) }; changed(); return true }
     if (action === 'identity-edit') { const p = state.data?.projects.find(p=>p.file===value); if(p?.file && state.source) openEditor(p); return true }
     if (action === 'collection-filter') layout.filter = value                            
     if (action === 'collection-group') layout.grouped = !layout.grouped
