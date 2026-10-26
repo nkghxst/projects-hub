@@ -1,3 +1,4 @@
+import { identityArt } from './collection-ui.js'
 // The catch-up page: every record this device hasn't seen in its current form, pinned projects first, then the newest
 // edits. Each says how many parts changed, were added or went; "Show what changed" fetches its recent saved versions,
 // finds the one this device last saw, and shows the changed lines and any wait on the owner that appeared or cleared.
@@ -122,7 +123,7 @@ export function renderChanges()         {
         const edited = p.editedMs !== null ? ` · edited ${esc(ageLabel(p.editedMs, now, true))} ago${p.editedOn ? ` on ${esc(p.editedOn)}` : ''}` : ''
         return `
         <section class="card change" aria-label="${esc(p.name)}">
-          <div class="change-head">${isPinned(p) ? '<span title="Pinned">★</span> ' : ''}<a href="${recordHref(p.file)}"><strong>${esc(p.name)}</strong></a>
+          <div class="change-head">${identityArt(p,true)}${isPinned(p) ? '<span title="Pinned">★</span> ' : ''}<a href="${recordHref(p.file)}"><strong>${esc(p.name)}</strong></a>
             <span class="muted small">${dot(p.machine)} ${machineName(p.machine)} record${edited}</span></div>
           <p class="muted small">${kind === 'new' ? 'New since this device started keeping track.' : esc(counts(p))}</p>
           <div class="actions">

@@ -1,3 +1,4 @@
+import { identityArt } from './collection-ui.js'
 // Small pieces several views share: marks, names, links, flag chips, the live-work box and note cards.
 import { ageLabel, boldVerdicts, FLAGS, fmtStamp, HEX, isWebUrl, noteOrigin, parseNote, resolvePath } from './core.js'
                                                                    
@@ -108,6 +109,9 @@ export function destinationLabel(dest        )         {
 // a conflict or a held note can be discarded, and a held one can be sent to the current repository instead.
 import { notePictures } from './photo-ui.js'
 export function noteCard(n               , isQueued         , hold                                                  = '')         {
+  // A held/legacy queue item may share a path with an unrelated current-destination project.
+  const isCurrentDestination = !isQueued || ('dest' in n && Boolean(state.source?.dest) && n.dest === state.source?.dest)
+  const identityProject = isCurrentDestination ? state.data?.projects.find(p=>p.file===n.project) : undefined
   const resolve = linkResolver(n.path)
   const project = n.project ? `<a href="${recordHref(n.project)}">${esc(projectName(n.project))}</a>` : ''
   const captured = 'captured' in n ? n.captured : fmtStamp(n.createdAt, Date.now())
@@ -160,15 +164,16 @@ export function noteCard(n               , isQueued         , hold              
     : ''
   return `
     <article class="card note ${isQueued ? 'queued' : ''}">
-      <div class="note-head">
+      <div class="note-head">${identityProject ? identityArt(identityProject,true) : ''}
         <span class="mark" title="${n.kind === 'idea' ? 'Idea' : 'Note'}">${n.kind === 'idea' ? '◇' : '✎'}</span>
         <strong>${esc(n.title)}</strong>
         <span class="muted">${esc(captured)}${project ? ' · ' : ''}${project}${status}</span>
         ${!isQueued && state.mode === 'local' ? `<a class="link muted" href="${recordHref(n.path)}">file</a>` : ''}
       </div>
-      <div class="md">${renderMarkdown(n.body, resolve)}</div>
       ${notePictures(n)}
+      <div class="md">${renderMarkdown(n.body, resolve)}</div>
       ${source}
+      ${!isQueued&&state.notesCached ? `<p class="muted small">Saved copy of note${state.notesLoadedAt?` from ${esc(new Date(state.notesLoadedAt).toLocaleString())}`: ': date unavailable'}</p>` : ''}
       ${conflict}
       ${actions}
       ${lifecycle}

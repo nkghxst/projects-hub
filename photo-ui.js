@@ -1,3 +1,4 @@
+import { beginAnnotation, syncAnnotation, cancelAnnotation } from './photo-annotation.js'
 import { parseNote, PHOTO_MAX_COUNT, isPhotoPath } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
 import { state, changed, toast } from './state.js'
@@ -10,6 +11,7 @@ export function clearPhotoViews() {
   urls.clear(); viewer?.remove(); viewer = null
 }
 export function clearDraftPhotos() {
+  cancelAnnotation()
   state.photoGeneration++
   for (const p of state.draftPhotos) URL.revokeObjectURL(p.url)
   state.draftPhotos = []; state.photoBusy = false
@@ -38,7 +40,7 @@ export function capturePictures()         {
   return `<section class="capture-pictures"><span>Pictures <span class="muted">(up to four)</span></span>
     <div class="actions"><label class="button photo-picker">Add pictures<input class="photo-input" id="draft-pictures" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
     <label class="button photo-picker">Take photo<input class="photo-input" id="draft-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label></div>
-    <div class="picture-grid">${state.draftPhotos.map((p,i) => `<figure><button type="button" data-action="draft-photo-view" data-value="${i}" aria-label="Enlarge picture ${i+1}"><img src="${p.url}" alt="Selected picture ${i+1}"></button><button type="button" data-action="photo-remove" data-value="${i}">Remove picture ${i+1}</button></figure>`).join('')}</div>
+    <div class="picture-grid">${state.draftPhotos.map((p,i) => `<figure><button type="button" data-action="draft-photo-view" data-value="${i}" aria-label="Enlarge picture ${i+1}"><img src="${p.url}" alt="Selected picture ${i+1}"></button><button type="button" data-action="photo-remove" data-value="${i}">Remove picture ${i+1}</button><button type="button" data-action="draft-photo-annotate" data-value="${i}">Annotate picture ${i+1}</button></figure>`).join('')}</div>
     ${state.photoBusy ? '<p role="status">Preparing pictures…</p>' : ''}
     <p class="muted small">Large pictures are resized; location metadata is removed. Saved privately with this note. Handling it keeps the pictures.</p></section>`
 }
@@ -46,7 +48,7 @@ export function notePictures(n                                                  
   const paths = n.text ? parseNote(n.path, n.text).attachments ?? [] : n.attachments ?? []
   return paths.length ? `<div class="picture-grid">${paths.filter(isPhotoPath).map((p,i) => `<button type="button" class="note-picture" data-action="photo-view" data-photo="${esc(p)}" data-note="${esc(n.path)}" data-dest="${esc(n.dest ?? state.source?.dest ?? '')}" aria-label="View picture ${i+1}">View picture ${i+1}</button>`).join('')}</div>` : ''
 }
-export function enlargePicture(url        ) {
+export function enlargePicture(url        , annotate             ) {
   viewer?.remove()
   const dialog = document.createElement('dialog')
   dialog.className = 'picture-viewer'
@@ -56,6 +58,7 @@ export function enlargePicture(url        ) {
   const zoom = document.createElement('button'); zoom.textContent = 'Zoom in'
   zoom.addEventListener('click', () => { const full = img.classList.toggle('full-size'); zoom.textContent = full ? 'Fit picture' : 'Zoom in' })
   const controls = document.createElement('div'); controls.className = 'picture-controls'; controls.append(close, zoom)
+  if (annotate) { const edit=document.createElement('button');edit.textContent='Annotate as new note';edit.onclick=()=>{dialog.close();annotate()};controls.append(edit) }
   dialog.append(controls, img); document.body.append(dialog); viewer = dialog; dialog.showModal()
 }
 // No token in image URLs: fetch through the authenticated source then use a short-lived blob URL.
@@ -73,17 +76,24 @@ export async function viewPicture(button             , enlarge = true) {
     // Cache is best-effort for already-published pictures; queue storage is mandatory on capture.
     if (dest === source.dest) await photoStore('put', dest, path, blob).catch(() => {})
     if (source !== state.source || generation !== state.sourceGeneration || !button.isConnected) return
+    const picture=blob
+    const savedNote=dest===source.dest ? state.notes.find(n=>n.path===note&&(n.attachments??[]).includes(path)) : undefined
+    const annotate=savedNote&&source.createPhoto&&(source.kind==='local'?state.data?.canWrite===true:state.data?.canWrite!==false) ? ()=>{
+      if(source!==state.source||generation!==state.sourceGeneration||dest!==state.source?.dest||!state.notes.some(n=>n.path===note&&(n.attachments??[]).includes(path)))return
+      void beginAnnotation(picture,{note:{path:savedNote.path,project:savedNote.project,title:savedNote.title,source:savedNote.source,photo:path},dest})
+    } : undefined
     const url = URL.createObjectURL(blob); urls.add(url)
     const img = document.createElement('img'); img.src = url; img.alt = button.getAttribute('aria-label') ?? 'Note picture'
-    button.replaceChildren(img); button.onclick = () => enlargePicture(url)
+    button.replaceChildren(img); button.onclick = () => enlargePicture(url, annotate)
     button.removeAttribute('data-action')
-    if (enlarge) enlargePicture(url)
+    if (enlarge) enlargePicture(url, annotate)
   } catch (error) {
     button.textContent = 'Picture unavailable — tap to retry'
     if (enlarge) toast(error instanceof Error ? error.message : 'Could not load picture')
   } finally { button.removeAttribute('aria-busy') }
 }
 export function loadPicturePreviews() {
+  syncAnnotation()
   clearPhotoViews()
   for (const button of document.querySelectorAll             ('[data-action="photo-view"]')) void viewPicture(button, false)
 }

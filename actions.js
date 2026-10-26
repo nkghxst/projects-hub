@@ -1,3 +1,7 @@
+import { cancelAnnotation } from './photo-annotation.js'
+import { writeReceipt, removeUnfinishedReceipt } from './capture-receipts.js'
+import { projectKey, recordVisit, resetAllCollections } from './collection.js'
+import { persistCollectionFilters, closeEditor, collectionLayout } from './collection-ui.js'
 // What the hub does: load data, send queued notes, summarise, save drafts and settings, filter, and follow routes.
 // Each action changes state and calls changed() for a redraw.
 import { ASK_MAX_SOURCES, ASK_STARTERS, currentSectionIndex, currentMetadataText, declaredOwner, folderOf, recordFolders, sectionKeys, sectionPrints, STALE_DAYS_DEFAULT, fmtStamp, notesBehind, pickUpPrompt, recordChanges, sectionHash, seenVersion, shareBriefOf, formatNote, isWebUrl, looksLikeSecret, PHONE_DIR, printsOf, sharePrompt } from './core.js'
@@ -35,12 +39,12 @@ export async function loadAll() {
   const source = state.source
   if (!source) return
   const generation = state.sourceGeneration
+  // Restore this destination's query before scheduling its guarded record-text search.
+  collectionLayout()
   try {
     const data = await source.projects()
     if (generation !== state.sourceGeneration) return
     state.data = data
-    // New data may change what a search finds: run the active one again.
-    if (state.filters.query.trim().length >= 2 && state.searchFor) scheduleSearch()
     initSeen(data.projects)
     noteRecordSeen()
     state.loadedAt = Date.now()
@@ -60,10 +64,19 @@ export async function loadAll() {
       }
     }
   }
+  // A removed project (including one missing from a restored offline copy) must not leave an invisible filter.
+  if (generation === state.sourceGeneration && state.data && state.inboxProject && !state.data.projects.some(p => p.file && projectKey(p, state.data?.sharedProjects) === state.inboxProject)) state.inboxProject = ''
+  // Includes a first restored query and an offline copy, neither of which has searchFor yet.
+  if (generation === state.sourceGeneration && state.filters.query.trim().length >= 2) scheduleSearch()
   try {
     const notes = await source.notes()
-    if (generation === state.sourceGeneration) state.notes = withLocalMarks(notes)
+    if (generation === state.sourceGeneration) {
+      state.notes = withLocalMarks(notes); state.notesDest=source.dest
+      state.notesCached=state.isOffline||(source.kind==='github'&&Boolean(state.error))
+      state.notesLoadedAt=state.notesCached ? (snapshotAge(settings)??state.notesLoadedAt) : Date.now()
+    }
   } catch {
+    if(generation===state.sourceGeneration)state.notesCached=true
     // Keep the notes already shown.
   }
 }
@@ -85,6 +98,7 @@ export async function loadRecord(path        ) {
     state.record = record
     state.recordDest = dest
     state.recordError = ''
+    if (!isSameRecord) { const p = state.data?.projects.find(p=>p.file===path); if(p) { try { recordVisit(dest,projectKey(p,state.data?.sharedProjects),Date.now()) } catch(e) { toast(errorText(e)) } } }
     noteRecordSeen()
     void loadMentions(path, isSameRecord)
     if (isSameRecord) {
@@ -109,6 +123,7 @@ export async function loadRecord(path        ) {
 
 // Replaces the active source: stops its requests, invalidates work started for it, and clears what it showed.
 function replaceSource(next               ) {
+  cancelAnnotation()
   clearPhotoViews()
   clearDraftPhotos()
   clearLocalMarks()
@@ -124,7 +139,7 @@ function replaceSource(next               ) {
   state.changes = {}
   state.mentions = null
   state.data = null
-  state.notes = []
+  state.notes = []; state.notesLoadedAt=0; state.notesCached=false; state.notesDest=''; state.receiptWarning=''; state.inboxProject=''
   state.record = null
   state.recordDest = ''
   state.isOffline = false
@@ -157,6 +172,7 @@ export async function flushQueue() {
         if (generation !== state.sourceGeneration) return
         if (!isQueued(q.id)) continue
         try {
+          captureReceipt(q,'retrying');changed()
           const attachments = parseNote(q.path, q.text).attachments ?? []
           if (q.attachments?.length && JSON.stringify(q.attachments) !== JSON.stringify(attachments)) throw new Error('Picture references are damaged; note retained')
           if (attachments.length && !source.createPhoto) throw new Error('This connection cannot upload pictures; note retained')
@@ -168,10 +184,19 @@ export async function flushQueue() {
           }
           if (generation !== state.sourceGeneration || !isQueued(q.id)) return
           await create(q.path, q.text, `Phone ${q.kind}: ${q.title}`)
+          if(generation!==state.sourceGeneration||state.source!==source||!isQueued(q.id))return
+          // Queue removal follows a durable confirmation; quota failure permits an exact retry.
+          try { writeReceipt({dest:q.dest,id:q.id,path:q.path,title:q.title,at:Date.now(),status:source.kind==='local'?'clone':'published'});state.receiptWarning='' }
+          catch {
+            state.receiptWarning=`${source.kind==='local'?'Saved to desktop clone; publication unverified':'Published to GitHub; write confirmed'}, but the receipt could not be stored. The queued copy is retained for an exact retry.`
+            state.queueError=state.receiptWarning;return
+          }
           dropQueued(q.id)
           sent++
           state.queueError = ''
         } catch (error) {
+          if(generation!==state.sourceGeneration||state.source!==source)return
+          captureReceipt(q,'error')
           if (error instanceof Error && error.name === 'conflict') {
             putQueued({ ...q, conflict: error.message })
             state.queueError = error.message
@@ -193,6 +218,7 @@ export async function flushQueue() {
     isFlushing = false
   }
   // Show the sent notes as sent straight away, then again once the reload brings them back from GitHub.
+  if(generation!==state.sourceGeneration||state.source!==source)return
   refreshQueue()
   changed()
   if (sent > 0 && generation === state.sourceGeneration) {
@@ -205,9 +231,11 @@ export async function flushQueue() {
 }
 
 export function setFilters(change                  ) {
+  collectionLayout()
   state.filters = { ...state.filters, ...change }
   const { query: _query, ...kept } = state.filters
-  localStorage.setItem('hub.filters', JSON.stringify(kept))
+  try { localStorage.setItem('hub.filters', JSON.stringify(kept)) } catch { /* collection persistence displays the error */ }
+  persistCollectionFilters()
   changed()
   if ('query' in change) scheduleSearch()
 }
@@ -352,6 +380,10 @@ export async function summarise(index        , isRedo         ) {
   }
 }
 
+function captureReceipt(q        , status                            ) {
+  try { writeReceipt({dest:q.dest,id:q.id,path:q.path,title:q.title,at:Date.now(),status}); state.receiptWarning='' }
+  catch { state.receiptWarning='Capture receipt storage is full. Queued notes remain available for retry; a missing receipt does not prove publication.' }
+}
 export async function saveDraft() {
   if (state.photoBusy || state.savingDraft) return toast('Wait for the pictures to finish saving')
   // Saved as the quick-add tokens say (I9), without them; the form's own choice when they're kept as text.
@@ -381,7 +413,9 @@ export async function saveDraft() {
       await photoStore('put', source.dest, attachments[i], pictures[i].blob)
     }
     if (generation !== state.sourceGeneration || photoGeneration !== state.photoGeneration) return
-    putQueued({ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), attachments, createdAt: Date.now() })
+    const queued={ id: file.id, dest: source.dest, path: file.path, text: file.text, kind: d.kind, title, project, body: d.body.trim(), attachments, createdAt: Date.now() }
+    putQueued(queued)
+    captureReceipt(queued,'queued')
   } catch (error) { toast(`Not saved: ${errorText(error)}. Your draft is still here.`); return }
   finally { state.savingDraft = false; changed() }
   clearDraftPhotos()
@@ -935,7 +969,10 @@ export async function removeAllData() {
   const unsent = readQueue().length
   const warning = unsent > 0 ? `\n\n${unsent} note${unsent === 1 ? " hasn't" : "s haven't"} been sent yet and will be lost.` : ''
   if (!confirm(`Remove the token, settings, offline copies and unsent notes from this device?${warning}`)) return
+  closeEditor()
   replaceSource(null)
+  localStorage.setItem('hub.epoch', `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+  try { await resetAllCollections() } catch (error) { state.settingsMessage = `Reset stopped: ${errorText(error)}. Retry or clear this site's data in browser settings.`; changed(); return }
   const keys           = [...snapshotKeys()]
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
@@ -988,15 +1025,25 @@ export async function sendHeldHere(id        ) {
     }
   } catch (error) { return toast(errorText(error)) }
   if (generation !== state.sourceGeneration || !isQueued(id)) return
-  putQueued({ ...item, dest, conflict: undefined })
+  try { putQueued({ ...item, dest, conflict: undefined }) }
+  catch(error) { return toast(`Not moved: ${errorText(error)}. The original queued copy is still here.`) }
+  retireQueueReceipt(item,'moved to the selected destination')
   refreshQueue()
   await flushQueue()
 }
 
+function retireQueueReceipt(item        , outcome        ) {
+  try { removeUnfinishedReceipt(item.dest,item.id) }
+  catch {
+    state.receiptWarning=`Note ${outcome}, but obsolete receipt storage could not be cleared. Unfinished receipts are shown only while a matching queued copy exists.`
+    toast(state.receiptWarning)
+  }
+}
 export function discardQueued(id        ) {
   const item = readQueue().find(q => q.id === id)
-  if (!item || !confirm(`Discard "${item.title}"? It hasn't been sent anywhere, so this can't be undone.`)) return
-  dropQueued(id)
+  if (!item || !confirm(`Discard the saved queue copy of "${item.title}"? Any completed write and its receipt are kept. This cannot be undone.`)) return
+  try { dropQueued(id) } catch(error) { return toast(`Not discarded: ${errorText(error)}. The queued copy is still here.`) }
+  retireQueueReceipt(item,'discarded')
   refreshQueue()
   changed()
 }

@@ -1,36 +1,25 @@
-// The home, decision first: what waits on the owner, then next actions, pinned projects, and every project grouped
-// by where it stands. The freshness counts, the 14-day chart and live work fold into an Activity area at the bottom.
-import { activityChart, aliasesFor, ageLabel, dayKeyOf, staleCheckpoint, fmtDay, freshTone, kpis, notesBehind, searchTerms, sorter, SORTS } from './core.js'
-                                                                  
+// The collection comes first. Needs-you, next actions and original activity/freshness evidence follow it.
+import { activityChart, ageLabel, fmtDay, kpis, searchTerms, sorter } from './core.js'
+                                                   
 import { escapeHtml as esc, inline } from './markdown.js'
-import { chips, dot, linkResolver, liveBox, machineName, notesFor, onePerProject, projectName, providerTag, queuedFor } from './parts.js'
+import { dot, linkResolver, liveBox, machineName, onePerProject, projectName, providerTag } from './parts.js'
 import { recordHref } from './routes.js'
                                        
-import { changeOf } from './seen.js'
 import { changedRecords } from './view-changes.js'
-import { isPinned, state } from './state.js'
-import { snapshotChip, snapshotOverview } from './view-snapshot.js'
+import { state } from './state.js'
+import { snapshotOverview } from './view-snapshot.js'
+import { collectionLayout, renderCollection, collectionProjects, projectAsks } from './collection-ui.js'
 
-const GROUPS                                             = [
-  { status: 'waiting', label: 'Waiting on you' },
-  { status: 'active', label: 'Active' },
-  { status: 'hold', label: 'On hold or blocked' },
-  // Neither a hold nor progress is stated, so the home doesn't guess.
-  { status: 'unstated', label: 'Status not stated' },
-  { status: 'done', label: 'Done' },
-]
 const NEXT_SHOWN = 6
 
 const openDetails = (key        ) => (state.openDetails.has(key) ? ' open' : '')
 
-// Where a quote came from, briefly: the full section title is in its tooltip.
-const sourceLabel = (where        ) => (where === 'index row' || where === 'Next' ? where : 'current checkpoint')
-
 // What needs the owner: lines a record states outright ("Waiting on …:") first, then keyword matches, marked as
 // possible asks. It covers actions as well as decisions, so it's called "Needs you".
-function decisions(all           , now        )         {
-  const waiting = all
-    .filter(p => p.waits.length > 0)
+function decisions(data      , now        )         {
+  const all = data.projects
+  const waiting = collectionProjects(data)
+    .filter(p => projectAsks(p,data).length > 0)
     .sort((a, b) => Number(b.waits.some(w => w.isStated)) - Number(a.waits.some(w => w.isStated)) || (b.checkedMs ?? -1) - (a.checkedMs ?? -1))
   const help = `<details class="help small"><summary>How this works</summary><p class="muted">Lines a checkpoint states as
     "Waiting on …" come first. Others are matched by wording such as "waits for your decision" or "needs your approval",
@@ -40,7 +29,7 @@ function decisions(all           , now        )         {
       <summary><h2 class="home-h">Needs you</h2></summary>
       <p>Nothing found waiting on you in the current checkpoints.</p>${help}</details>`
   }
-  const count = waiting.reduce((n, p) => n + p.waits.length, 0)
+  const count = waiting.reduce((n, p) => n + projectAsks(p,data).length, 0)
   return `
     <details class="card fold decisions accent" data-fold="needs-you"${foldOpen('needs-you')}>
       <summary><h2 class="home-h">Needs you <span class="muted">(${count})</span></h2></summary>
@@ -49,10 +38,10 @@ function decisions(all           , now        )         {
           p => `<div class="decision">
             <div class="decision-head"><a href="${recordHref(p.file)}"><strong>${esc(p.name)}</strong></a> ${providerTag(p)}
               <span class="muted small">${dot(p.machine)} ${machineName(p.machine)}${p.checkedMs !== null ? ` · ${esc(fmtDay(p.checkedMs))}` : ''}</span></div>
-            ${p.waits
+            ${projectAsks(p,data)
               .map(
                 w => `<blockquote class="quote">${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)}
-                  <span class="muted small" title="${esc(w.where)}">(${esc(sourceLabel(w.where))})</span></blockquote>`,
+                  <span class="muted small" title="${esc(w.sources.join('; '))}">(${w.sources.map(s => esc(s)).join('<br>')})</span></blockquote>`,
               )
               .join('')}
           </div>`,
@@ -60,14 +49,6 @@ function decisions(all           , now        )         {
         .join('')}
       ${help}
     </details>`
-}
-
-// "Update missing": a neutral cue on an Active project whose newest recorded checkpoint (either machine's) is old.
-function staleChip(p         , pair                     , now        )         {
-  const age = staleCheckpoint(p, pair, now, state.staleDays)
-  if (age === null) return ''
-  const copy = state.isOffline ? ' in this saved copy' : ''
-  return `<span class="chip stale" title="A cue to look, not a deadline: the newest checkpoint of this Active project, on either machine, is ${age} days old${copy}. Change or turn off in Settings.">Latest recorded checkpoint is ${age} days old${copy}</span>`
 }
 
 // A way into the catch-up page when anything changed since this device last looked.
@@ -99,15 +80,6 @@ function nextActions(list           , now        )         {
 
 // Home sections that start open and fold on click; a fold is remembered on this device (state.folded).
 const foldOpen = (key        ) => (state.folded.has(key) ? '' : ' open')
-
-// Changed since this device last opened the record (or its other machine's record), or added since.
-function changeChip(p         , pair                     )         {
-  const mine = changeOf(p)
-  const theirs = pair ? changeOf(pair) : 'none'
-  if (mine === 'changed' || theirs === 'changed') return '<span class="chip changed" title="Changed since you last opened it on this device">● changed</span>'
-  if (mine === 'new') return '<span class="chip changed" title="Added since this device started keeping track">new</span>'
-  return ''
-}
 
 // When each device last published a change to the profile: its newest commit on GitHub (on the desktop, as of this
 // clone's last sync). A sync with nothing new leaves no trace, hence "change published", not "synced". Commits made
@@ -162,90 +134,20 @@ function searchResults(query        , now        )         {
 }
 
 export function renderList(data      , width        )         {
+  collectionLayout()
   const f = state.filters
   const now = data.now
-  const query = f.query.toLowerCase()
-  // The query as typed, or any of its other names when the whole query is an alias (I6: FDVR finds FlightDVR Studio).
-  const names = query === '' ? [] : [query, ...aliasesFor(query.trim(), data.aliases ?? [])]
-  const isMatch = (p         ) => {
-    if (f.machine !== 'all' && p.machine !== f.machine) return false
-    const text = `${p.name} ${p.state} ${p.next} ${p.waits.map(w => w.text).join(' ')}`.toLowerCase()
-    return query === '' || names.some(n => text.includes(n))
-  }
   const all = [...data.projects].sort(sorter(f.sort))
   const projects = onePerProject(all)
-  const shown = onePerProject(all.filter(isMatch))
-  // A pin on either record of a paired project pins the project, whichever record the home shows for it.
-  const pinned = projects.filter(isPinned)
   const k = kpis(data.projects, data.live, now)
   const chart = activityChart(data.projects, now, Math.max(260, Math.min(720, width - 40)))
   const incomplete = data.projects.filter(p => p.activityComplete === false).length
   const active = data.live.filter(s => s.latestMs !== null && now - s.latestMs < 3 * 24 * 60 * 60 * 1000)
 
-  const row = (p         ) => {
-    const isEdited = f.sort === 'edited'
-    const ms = isEdited ? p.editedMs : p.checkedMs
-    const tone = freshTone(ms === null ? null : isEdited ? dayKeyOf(ms) : ms, now)
-    const behind = notesBehind(p, data.live)
-    const noteCount = p.file ? notesFor(p.file).length + queuedFor(p.file).length : 0
-    const pair = p.pairFile ? data.projects.find(o => o.file === p.pairFile) : undefined
-    const href = p.file ? recordHref(p.file) : '#/'
-    return `
-      <a class="row" href="${href}">
-        <span class="age ${tone === 'muted' ? 'muted' : ''}">${dot(tone, ms === null ? '○' : isEdited ? '✎' : '●')} ${esc(ageLabel(ms, now, isEdited))}</span>
-        <span class="row-main">
-          <span class="row-title">
-            <span class="name">${esc(p.name)}</span>
-            <span class="chip">${dot(p.machine)} ${machineName(p.machine)}</span>
-            ${providerTag(p)}
-            ${snapshotChip(data.sharedProjects, p.file)}
-            ${changeChip(p, pair)}
-            ${staleChip(p, pair, now)}
-            ${pair ? `<span class="chip" title="Also has a record on the other machine">⇄ also ${machineName(pair.machine)}${pair.checkedMs !== null ? ` · ${esc(ageLabel(pair.checkedMs, now, false))}` : ''}</span>` : ''}
-            ${behind && behind.latestMs !== null ? `<span class="chip">${dot('good', '⚡')} active ${esc(ageLabel(behind.latestMs, now, true))} ago · notes behind</span>` : ''}
-            ${noteCount > 0 ? `<span class="chip">✎ ${noteCount} note${noteCount === 1 ? '' : 's'}</span>` : ''}
-            ${chips(p)}
-          </span>
-          <span class="state">${esc(p.state)}</span>
-        </span>
-      </a>`
-  }
-
-  const groups = GROUPS.map(g => {
-    const rows = shown.filter(p => p.status === g.status)
-    if (rows.length === 0) return ''
-    const head = `${esc(g.label)} <span class="muted">${rows.length}</span>`
-    // Finished projects stay out of the way until asked for (or while filtering).
-    return g.status === 'done' && query === ''
-      ? `<details class="group" data-key="group-done"${openDetails('group-done')}><summary class="group-h">${head}</summary>${rows.map(row).join('')}</details>`
-      : `<section class="group"><h3 class="group-h">${head}</h3>${rows.map(row).join('')}</section>`
-  }).join('')
-
   return `
-    ${
-      f.query.trim().length >= 2
-        ? searchResults(f.query, now)
-        : `${catchUp()}
-           ${decisions(all, now)}
-           ${nextActions(projects, now)}`
-    }
-    ${f.query.trim().length < 2 && pinned.length > 0 ? `<section class="group pinned"><h2 class="home-h">Pinned</h2>${pinned.map(row).join('')}</section>` : ''}
-
-    <h2 class="home-h all">All projects <span class="muted">${projects.length}</span></h2>
-    ${freshness(data.published, now)}
-    ${snapshotOverview(data.sharedProjects)}
-    <div class="toolbar">
-      <input id="query" type="search" aria-label="Search projects and record text" placeholder="Search projects and records…" value="${esc(f.query)}" autocomplete="off">
-      <div class="segmented">
-        ${(['all', 'desktop', 'laptop']         )
-          .map(m => `<button data-action="machine" data-value="${m}" class="${f.machine === m ? 'on' : ''}" aria-pressed="${f.machine === m}">${m === 'all' ? 'All' : machineName(m)}</button>`)
-          .join('')}
-      </div>
-      <label class="sort">Sort
-        <select id="sort">${SORTS.map(s => `<option value="${s.value}" ${s.value === f.sort ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select>
-      </label>
-    </div>
-    ${shown.length === 0 ? '<p class="muted">No projects match. <button class="link" data-action="clear">Clear filters</button></p>' : groups}
+    ${renderCollection(data)}
+    ${f.query.trim().length >= 2 ? searchResults(f.query, now) : `${catchUp()}${decisions(data, now)}${nextActions(projects, now)}`}
+    <section class="collection-provenance" aria-label="Source freshness">${freshness(data.published, now)}${snapshotOverview(data.sharedProjects)}</section>
 
     <details class="activity" data-key="activity"${openDetails('activity')}>
       <summary>Activity: ${k.fresh} checkpoint${k.fresh === 1 ? '' : 's'} in the last 2 days${active.length > 0 ? ` · ${dot('good', '⚡')} ${active.length} live` : ''}</summary>

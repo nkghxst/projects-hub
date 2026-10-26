@@ -1,3 +1,4 @@
+import { readReceipts, receiptLabel } from './capture-receipts.js'
 // The inbox, the capture form and the phone's settings.
 import { MACHINES } from './core.js'
 import { escapeHtml as esc } from './markdown.js'
@@ -6,14 +7,21 @@ import { captureHref } from './routes.js'
 import { effectiveDraft, quickAddBox } from './quick-add.js'
 import { pageOwner, tokenTemplateUrl } from './source.js'
 import { deviceName, state, UNKNOWN_DEST } from './state.js'
+import { collectionProjects, projectMembers } from './collection-ui.js'
+import { projectKey } from './collection.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
 export function renderInbox()         {
   const kind = state.inboxKind
   const status = state.inboxState
+  const projects = state.data ? collectionProjects(state.data).filter(p => p.file) : []
+  const selected = projects.find(p => projectKey(p, state.data?.sharedProjects) === state.inboxProject)
+  const members = new Set(selected ? projectMembers(selected).map(p => p.file) : [])
   const notes = state.notes
     .filter(n => kind === 'all' || n.kind === kind)
+    .filter(n => !state.inboxProject || members.has(n.project))
+    .filter(n => !state.inboxPictures || Boolean(n.attachments?.length))
     .filter(n => status === 'all' || (status === 'handled' ? Boolean(n.handledAtMs) : !n.handledAtMs))
   const queued = state.queue.filter(q => kind === 'all' || q.kind === kind)
   const dest = state.source?.dest
@@ -25,12 +33,14 @@ export function renderInbox()         {
   const canCapture = Boolean(state.source?.createFile)
   return `
     <div class="crumbs"><a class="button" href="#/">← All projects</a>${canCapture ? `<a class="button primary" href="${captureHref()}">✎ New note</a>` : ''}</div>
-    <h2 class="title">Inbox</h2>
+    <h2 class="title">Notes & testing</h2>
     <p class="muted">${
       state.mode === 'local'
         ? 'Notes and ideas from your devices, as of this clone’s last profile sync.'
         : 'Notes and ideas from your devices, stored in claude-profile (memory/phone/ and memory/desktop/).'
     }</p>
+    ${state.notesCached ? `<p class="notice" role="status">Saved copy of notes${state.notesLoadedAt ? ` from ${esc(new Date(state.notesLoadedAt).toLocaleString())}` : ' · date unavailable'}. Reconnect and refresh for current notes.</p>` : ''}
+    <div class="toolbar notes-toolbar"><label>Project<select id="inbox-project"><option value="">All projects</option>${projects.map(p=>{const key=projectKey(p,state.data?.sharedProjects);return `<option value="${esc(key)}" ${state.inboxProject===key?'selected':''}>${esc(p.name)}</option>`}).join('')}</select></label><button data-action="inbox-pictures" aria-pressed="${state.inboxPictures}" class="${state.inboxPictures?'on':''}">Pictures only</button></div>
     <div class="toolbar">
       <div class="segmented" aria-label="Show">
         ${(['new', 'handled', 'all']         )
@@ -67,7 +77,10 @@ export function renderInbox()         {
             ${held.map(q => noteCard(q, true, 'other-repo')).join('')}</section>`
         : ''
     }
-    ${notes.map(n => noteCard(n, false)).join('') || (queued.length === 0 ? emptyInbox(canCapture) : '')}`
+    <div class="notes-gallery">${notes.map(n => noteCard(n, false)).join('')}</div>
+    ${notes.length===0 ? (state.notes.length ? '<p class="muted">No notes match these filters. Try Everything, All projects or turn off Pictures only.</p>' : queued.length===0 ? emptyInbox(canCapture) : '') : ''}
+    ${state.receiptWarning?`<p class="error" role="alert">${esc(state.receiptWarning)}</p>`:''}
+    <details class="capture-receipts"><summary>Capture receipts on this device</summary><p class="muted small">Recent actual saves for this destination. A desktop receipt cannot confirm publication.</p>${readReceipts(dest??'').map(r=>`<article><strong>${esc(r.title)}</strong><p>${esc(receiptLabel(r.status))}</p><small>${esc(new Date(r.at).toLocaleString())}</small></article>`).join('')||'<p>No capture receipts saved here yet.</p>'}</details>`
 }
 
 // What to do when there's nothing yet: on the desktop, how notes arrive; on the phone, a way to start one.

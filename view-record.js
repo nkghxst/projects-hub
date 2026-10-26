@@ -12,6 +12,7 @@ import { isPinned, state } from './state.js'
 import { renderSharePanel } from './view-share.js'
 import { currentPickUp, pickUpContext } from './actions.js'
 import { snapshotDetails } from './view-snapshot.js'
+import { identityArt, projectAsks } from './collection-ui.js'
 
 function rowHtml(r     , resolve              )         {
   if (r.kind === 'md') return `<div class="md">${renderMarkdown(r.text, resolve)}</div>`
@@ -48,14 +49,14 @@ function briefHtml(p         , resolve              )         {
   const state = p.stateLine
     ? `${inline(p.stateLine, resolve)} ${src('current checkpoint')}`
     : `${inline(p.state, resolve)} ${src('index row')}`
-  const waits = p.waits ?? []
+  const waits = projectAsks(p)
   const needs =
     waits.length === 0
       ? p.currentTitle
         ? 'Nothing found waiting on you in the current checkpoint.'
         : 'Nothing found waiting on you in the index row or a Next line (this record has no dated current checkpoint).'
       : waits
-          .map(w => `<div>${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)} ${src(w.where === 'index row' || w.where === 'Next' ? w.where : 'current checkpoint')}</div>`)
+          .map(w => `<div>${w.isStated ? '' : '<span class="possible">possible</span> '}${esc(w.text)} ${w.sources.map(where => src(where)).join(' ')}</div>`)
           .join('')
   const nextSrc =
     p.nextWhere === 'index row'
@@ -215,7 +216,8 @@ export function renderRecord(doc            , data             )         {
       <button data-action="back" title="Shortcut: b">← ${history.length > 1 ? 'Back' : 'All projects'}</button>
       <span class="muted clip">${esc(doc.path)}</span>
     </div>
-    <h2 class="title">${esc(p ? p.name : doc.title)}</h2>
+    <div class="record-identity">${p ? identityArt(p,true) : ''}<h2 class="title">${esc(p ? p.name : doc.title)}</h2>${p ? `<button class="link" data-action="identity-edit" data-value="${esc(p.file)}">Appearance</button>` : ''}</div>
+    <nav class="record-sections" aria-label="Record sections"><a href="#record-brief" data-record-section="record-brief">Brief</a><a href="#record-notes" data-record-section="record-notes">Notes</a><a href="#record-source" data-record-section="record-source">Source</a></nav><div id="record-brief"></div>
     ${
       p
         ? `<div class="meta">${dot(p.machine)} ${machineName(p.machine)} record · checkpoint ${p.checkedMs !== null ? `${esc(fmtDay(p.checkedMs))} (${esc(ageLabel(p.checkedMs, now, false))})` : 'not dated'}
@@ -243,10 +245,11 @@ export function renderRecord(doc            , data             )         {
     ${p && state.pickUp ? pickUpPanel(p.machine, p.name, p.pairFile) : ''}
     ${
       recordNotes.length + recordQueue.length > 0
-        ? `<section class="notes"><div class="label">Notes (${recordNotes.length + recordQueue.length})</div>
+        ? `<section class="notes" id="record-notes"><div class="label">Notes (${recordNotes.length + recordQueue.length})</div>
             ${recordQueue.map(q => noteCard(q, true)).join('')}${recordNotes.map(n => noteCard(n, false)).join('')}</section>`
-        : ''
+        : '<section id="record-notes"><h3>Notes</h3><p class="muted">No open notes for this record.</p></section>'
     }
+    <h3 id="record-source">Source record</h3>
     ${
       state.recordRemoved.length > 0 || state.recordChanged.has('#top')
         ? `<p class="changed-note">${[

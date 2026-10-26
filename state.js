@@ -192,6 +192,12 @@ export const state = {
   // Sections being summarised, by the hash of their text (an index can point elsewhere after a refresh).
   pending: new Set        (),
   notes: []          ,
+  notesLoadedAt: 0,
+  notesCached: false,
+  notesDest: '',
+  inboxProject: '',
+  inboxPictures: false,
+  receiptWarning: '',
   inboxKind: 'all'                    ,
   // The inbox shows open notes by default; handled ones are a filter away.
   inboxState: 'new'                             ,

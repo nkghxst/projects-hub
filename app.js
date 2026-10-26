@@ -1,3 +1,6 @@
+import { beginAnnotation } from './photo-annotation.js'
+import { collectionAction, collectionLayout, loadCollectionCovers, saveNamedView, closeEditor } from './collection-ui.js'
+import { collectionEpochKey } from './collection.js'
 // Projects hub web UI. The same page runs on the desktop (served by app/server.ts, reading the local clone, with
 // live Codeg work and summaries) and on the phone (published on GitHub Pages, reading claude-profile from GitHub
 // and capturing notes). Which one it is comes from whether the hub server answers.
@@ -85,7 +88,7 @@ function renderNav() {
   const count = inboxCount()
   const route = currentRoute().name
   nav.innerHTML = `
-    <a class="button wide" href="#/inbox" title="Notes and ideas"${route === 'inbox' ? ' aria-current="page"' : ''}>Inbox${count > 0 ? ` (${count})` : ''}</a>
+    <a class="button wide" href="#/inbox" title="Notes and ideas"${route === 'inbox' ? ' aria-current="page"' : ''}>Notes${count > 0 ? ` (${count})` : ''}</a>
     ${state.source?.createFile ? `<a class="button primary wide" href="${captureHref()}">✎ Note</a>` : ''}
     ${state.mode === 'github' ? `<a class="button" href="#/settings" title="Settings" aria-label="Settings"${route === 'settings' ? ' aria-current="page"' : ''}>⚙</a>` : ''}
     <button data-action="refresh" title="Refresh (shortcut: r)" aria-label="Refresh">↻</button>`
@@ -100,7 +103,7 @@ function renderTabbar() {
     `<a href="${href}"${isOn ? ' aria-current="page"' : ''}><span class="tab-icon" aria-hidden="true">${icon}</span>${label}</a>`
   tabbar.innerHTML = `
     ${tab('#/', '▦', 'Projects', route === 'list' || route === 'record')}
-    ${tab('#/inbox', '✉', count > 0 ? `Inbox <span class="tab-count">${count}</span>` : 'Inbox', route === 'inbox')}
+    ${tab('#/inbox', '✉', count > 0 ? `Notes <span class="tab-count">${count}</span>` : 'Notes', route === 'inbox')}
     ${state.source?.createFile ? tab(captureHref(), '✎', 'New', route === 'capture') : ''}
     <button type="button" data-action="search"><span class="tab-icon" aria-hidden="true">⌕</span>Search</button>`
 }
@@ -130,6 +133,7 @@ function restoreFocus(snap                                  ) {
 }
 
 function render() {
+  collectionLayout()
   setGlossary(state.data?.glossary ?? [])
   const focus = focusSnapshot()
   const isUsageFocused = (document.activeElement                      )?.dataset?.action === 'usage-toggle'
@@ -171,8 +175,10 @@ function render() {
   // Only rewritten when it changes, so the live region doesn't repeat itself on every redraw.
   if (bannerBox.innerHTML !== bannerHtml) bannerBox.innerHTML = bannerHtml
   view.innerHTML = html
-  if (document.querySelectorAll) loadPicturePreviews()
+  if (document.querySelectorAll) { loadPicturePreviews(); void loadCollectionCovers() }
   renderNav()
+  const sidebar = document.getElementById('sidebar')
+  if (sidebar) sidebar.innerHTML = `<a href="#/">▦ Projects</a><a href="#/inbox">✎ Notes</a><a href="#/changes">◷ Catch up</a><button data-action="collection-nav-pinned">☆ Pinned projects</button><a href="#/settings">Settings</a><p class="muted small">Ownership does not mean a machine is online.</p>`
   renderTabbar()
   usageBar.innerHTML = renderUsageBar(state.data?.usage, Date.now())
   document.body.dataset.route = r.name
@@ -228,6 +234,8 @@ function closeTerm() {
 }
 
 document.addEventListener('click', async event => {
+  const sectionLink = (event.target               ).closest?.('[data-record-section]')                      
+  if (sectionLink?.dataset?.recordSection) { event.preventDefault(); document.getElementById(sectionLink.dataset.recordSection)?.scrollIntoView({block:'start'}); return }
   const term = (event.target               ).closest?.('.term')                      
   if (term) explainTerm(term)
   else if (!(event.target               ).closest?.('#term-pop')) closeTerm()
@@ -240,11 +248,15 @@ document.addEventListener('click', async event => {
   if (!target) return
   const action = target.dataset.action
   const value = target.dataset.value ?? ''
+  if (action === 'collection-nav-pinned') { location.hash = '#/'; await collectionAction('collection-filter','pinned'); return }
+  if (action && (action.startsWith('collection-') || action === 'identity-edit') && await collectionAction(action, value)) { if(action === 'collection-apply' || action === 'collection-clear') setFilters({...state.filters}); return }
   if (action === 'machine') setFilters({ machine: value                       })
   else if (action === 'clear') setFilters({ machine: 'all', query: '' })
   else if (action === 'share-open') openShare({ target: 'section', index: Number(value) })
   else if (action === 'share-note') openShare({ target: 'note', note: value })
   else if (action === 'share-kind') setShareKind(value             )
+  else if (action === 'draft-photo-annotate') { const p=state.draftPhotos[Number(value)];if(p)await beginAnnotation(p.blob,{draftIndex:Number(value)}) }
+  else if (action === 'inbox-pictures') {state.inboxPictures=!state.inboxPictures;changed()}
   else if (action === 'photo-remove') removePicture(Number(value))
   else if (action === 'draft-photo-view') { const p = state.draftPhotos[Number(value)]; if (p) enlargePicture(p.url) }
   else if (action === 'photo-view') await viewPicture(target)
@@ -347,6 +359,7 @@ document.addEventListener('click', async event => {
 document.addEventListener('submit', event => {
   const form = event.target                   
   event.preventDefault()
+  if (form.id === 'save-view') { saveNamedView(form); return }
   if (form.id === 'capture') void saveDraft()
   else if (form.id === 'settings') void saveSettings()
 })
@@ -379,6 +392,9 @@ document.addEventListener('input', event => {
 window.addEventListener('storage', event => {
   if (event.key === null || event.key === EPOCH_KEY || event.key === 'hub.github') {
     location.reload()
+  } else if (event.key === collectionEpochKey(state.source?.dest ?? '')) {
+    collectionLayout()
+    changed()
   } else if (event.key.startsWith(QUEUE_PREFIX)) {
     refreshQueue()
     changed()
@@ -414,13 +430,16 @@ document.addEventListener(
 document.addEventListener('change', event => {
   const el = event.target               
   if (el.id === 'draft-pictures' || el.id === 'draft-camera') { void addPictures(Array.from((el                    ).files ?? [])); return }
-  if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
+  if (el.id === 'collection-machine') setFilters({machine: (el                     ).value                      })
+  else if (el.id === 'inbox-project') {state.inboxProject=(el                     ).value;changed()}
+  else if (el.id === 'sort') setFilters({ sort: (el                     ).value         })
   else if (el.id === 'draft-project') setDraftProject((el                     ).value)
   else if (el.id === 'set-stale') setStaleDays((el                    ).value)
 })
 
 document.addEventListener('keydown', event => {
   const el = event.target               
+  if (el.closest?.('dialog')?.tagName === 'DIALOG') return
   if (event.key === 'Enter' && el.classList?.contains('term')) {
     explainTerm(el)
     return
@@ -470,7 +489,7 @@ window.addEventListener('appinstalled', () => {
 })
 state.isInstalled = globalThis.matchMedia?.('(display-mode: standalone)').matches ?? false
 
-window.addEventListener('hashchange', () => void route())
+window.addEventListener('hashchange', () => { closeEditor(); void route() })
 window.addEventListener('online', () => void refresh())
 window.addEventListener('resize', () => {
   if (currentRoute().name === 'list') render()
