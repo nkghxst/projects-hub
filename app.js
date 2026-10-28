@@ -1,5 +1,8 @@
 import { beginAnnotation } from './photo-annotation.js'
-import { collectionAction, collectionLayout, loadCollectionCovers, saveNamedView, closeEditor, revealSelectedFilter } from './collection-ui.js'
+import { collectionAction, collectionLayout, loadCollectionCovers, saveNamedView, closeEditor, revealSelectedFilter, applyDisplayLayout } from './collection-ui.js'
+import { initDisplaySettings, handleDisplaySetting } from './display-settings.js'
+import { clearSharedArtworkCache } from './shared-art.js'
+import { clearRepoCopies } from './repo-reader.js'
 import { collectionEpochKey } from './collection.js'
 import { projectKey } from './collection.js'
 import { openRepoReader, openRepoConnection, closeRepoReader, reconcileRepoReader } from './repo-reader-ui.js'
@@ -72,6 +75,7 @@ import { addPictures, removePicture, enlargePicture, viewPicture, loadPicturePre
 
 // The desktop launcher adds ?stale=1 when it couldn't restart a server running old code.
 const isStaleServer = new URLSearchParams(location.search).get('stale') === '1'
+initDisplaySettings()
 
 const view = document.getElementById('view')               
 // Banners (loading problems, offline, storage) sit in a polite live region, so a screen reader hears them change.
@@ -345,7 +349,25 @@ document.addEventListener('click', async event => {
   else if (action === 'clear-draft') clearDraft()
   else if (action === 'keep-token') keepTokens(value)
   else if (action === 'forget-token') forgetToken()
-  else if (action === 'remove-all') await removeAllData()
+  else if (action === 'remove-all') { await removeAllData(); initDisplaySettings() }
+  else if (action === 'check-app-update') {
+    const status=document.getElementById('app-update-status')
+    try {
+      const registration=await navigator.serviceWorker?.getRegistration()
+      if (!registration) throw new Error('App update service is not available in this browser yet. Reopen the app online.')
+      await registration.update()
+      const response=await fetch('./sw.js',{cache:'no-store'})
+      if(!response.ok) throw new Error('Could not read the available app version')
+      const version=(await response.text()).match(/hub-[a-f0-9]{10}/)?.[0]
+      if(status?.isConnected) status.textContent=`Update check finished${version?'; available build '+version:''}. Reopen the app to use newly downloaded code.`
+    } catch(e) { if(status?.isConnected) status.textContent=e instanceof Error?e.message:'Update check failed' }
+  }
+  else if (action === 'clear-downloaded-cache') {
+    if (confirm('Clear downloaded shared artwork for this profile and saved repository documents in this browser? Notes, credentials and your uploaded covers are kept.')) {
+      try { clearSharedArtworkCache(state.source?.dest ?? ''); clearRepoCopies(); toast('Downloaded artwork and documents cleared. They download again when opened.'); changed() }
+      catch (e) { toast(e instanceof Error ? e.message : 'Could not clear downloaded copies') }
+    }
+  }
   else if (action === 'paste-connect') await pasteAndConnect()
   else if (action === 'install' && installPrompt) {
     // The browser's prompt can only be used once; after it, the setup screen goes back to the menu instructions.
@@ -440,6 +462,11 @@ document.addEventListener(
 
 document.addEventListener('change', event => {
   const el = event.target               
+  if (el.dataset?.displaySetting) {
+    try { if (handleDisplaySetting(el) && el.dataset.displaySetting !== 'theme') applyDisplayLayout() }
+    catch (e) { toast(e instanceof Error ? e.message : 'Could not save display preferences'); changed() }
+    return
+  }
   if (el.id === 'draft-pictures' || el.id === 'draft-camera') { void addPictures(Array.from((el                    ).files ?? [])); return }
   if (el.id === 'collection-machine') setFilters({machine: (el                     ).value                      })
   else if (el.id === 'inbox-project') {state.inboxProject=(el                     ).value;changed()}

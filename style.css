@@ -1,5 +1,5 @@
 @font-face { font-family: Anybody; src: url('./Anybody-Variable.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
-/* Projects hub. Light and dark from the OS setting; palette steps from the dataviz reference. */
+/* Projects hub. Explicit light/dark with an OS fallback; palette steps from the dataviz reference. */
 :root {
   --bg: #eeeee8;
   --surface: #fafaf5;
@@ -16,10 +16,25 @@
   --code: rgba(137, 135, 129, 0.16);
   --hover: rgba(137, 135, 129, 0.12);
   --radius: 10px;
-  color-scheme: light dark;
+  color-scheme: light;
 }
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1a1a19;
+    --surface: #222220;
+    --card: #262624;
+    --ink: #ecebe6;
+    --muted: #a3a19a;
+    --line: #383835;
+    --accent: #3987e5;
+    --link: #79aef0;
+    --accent-fill: #1d5bb0;
+    --ai-ink: #a99ff0;
+    --danger: #f08080;
+  }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
+    color-scheme: dark;
     --bg: #1a1a19;
     --surface: #222220;
     --card: #262624;
@@ -546,7 +561,8 @@ details.fold:not([open]) { padding-bottom: 10px; }
 @media (max-width: 600px) { .brand-name { display: inline; } }
 @media (max-width: 420px) { .bar:has(.usage-toggle) .brand-name { display: none; } }
 @media (max-width:760px) { .collection-project .project-art { aspect-ratio: 1.4; } .collection-project h3 { font-size: 15px; } }
-@media (prefers-color-scheme:dark) { .collection .chip { background: #283f35; color: #c5decc; } .collection .status-waiting { background: #4e3d25; color: #f2d59e; } .collection .status-hold { background: #42364f; color: #e0d0f0; } .collection .status-unstated { background: #384149; color: #d3dce4; } }
+:root[data-theme="dark"] .collection .chip { background: #283f35; color: #c5decc; } :root[data-theme="dark"] .collection .status-waiting { background: #4e3d25; color: #f2d59e; } :root[data-theme="dark"] .collection .status-hold { background: #42364f; color: #e0d0f0; } :root[data-theme="dark"] .collection .status-unstated { background: #384149; color: #d3dce4; }
+@media (prefers-color-scheme:dark) { :root:not([data-theme]) .collection .chip { background: #283f35; color: #c5decc; } :root:not([data-theme]) .collection .status-waiting { background: #4e3d25; color: #f2d59e; } :root:not([data-theme]) .collection .status-hold { background: #42364f; color: #e0d0f0; } :root:not([data-theme]) .collection .status-unstated { background: #384149; color: #d3dce4; } }
 
 /* Visual testing desk shares the collection's paper, forest and identity. */
 .notes-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start }
@@ -596,3 +612,15 @@ details.fold:not([open]) { padding-bottom: 10px; }
 .repo-document-body table { overflow-wrap:normal;word-break:normal }
 .repo-read-status { margin:16px 0;color:var(--muted) }
 @media(max-width:600px) { .repo-reader {padding:16px}.repo-reader fieldset {grid-template-columns:minmax(0,1fr);padding:12px}.repo-heading h2 {font-size:20px}.repo-provenance {grid-template-columns:108px minmax(0,1fr);gap:6px 10px;font-size:12px} }
+
+/* Settings remain usable at narrow phone widths. */
+.display-settings label { display:grid;gap:6px;min-width:0 }
+.display-settings select { width:100%;min-width:0;min-height:44px }
+.display-settings p { overflow-wrap:anywhere }
+
+/* Shared covers retain the same readable card body and reversible organisation. */
+.archived-projects { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.archived-projects > summary { cursor: pointer; font-weight: 650; padding: .7rem 0; }
+.collection.artwork-off .art-wrap { height: 42px; min-height: 42px; }
+.collection.artwork-off .project-art { display: none; }
+.identity-editor .actions { flex-wrap: wrap; }

@@ -4,7 +4,7 @@
 import { COLOURS, ICONS } from './project-art.js'
 export { COLOURS, ICONS, projectArt } from './project-art.js'
 
-                                                                                      
+                                                                                                                                                                                      
                                                                                                                                                                                                                                               
 const PREFIX = 'hub.collection.v1.'
 const slot = (kind        , dest        , key = '') => `${PREFIX}${kind}:${JSON.stringify([dest, key])}`
@@ -37,7 +37,8 @@ function defaults(key        )           {
 }
 function identity(v         )                       {
   if (!object(v) || !ICONS.some(i => i === v.icon) || !COLOURS.some(c => c === v.colour) || !string(v.group, 80) || (v.cover !== undefined && !coverId(v.cover))) return
-  return { icon: v.icon          , colour: v.colour          , group: v.group, ...(v.cover ? { cover: v.cover           } : {}) }
+  if ((v.artSource !== undefined && !['shared','local','builtin'].includes(v.artSource          )) || (v.groupSource !== undefined && !['shared','local'].includes(v.groupSource          )) || (v.hidden !== undefined && typeof v.hidden !== 'boolean')) return
+  return { icon: v.icon          , colour: v.colour          , group: v.group, ...(v.cover ? { cover: v.cover           } : {}), ...(v.artSource ? {artSource:v.artSource                         } : {}), ...(v.groupSource ? {groupSource:v.groupSource                           } : {}), ...(v.hidden !== undefined ? {hidden:v.hidden           } : {}) }
 }
 function read(kind        , dest        , key = '')          {
   try {
@@ -53,6 +54,14 @@ function write(kind        , dest        , value         , key = '')       {
   localStorage.setItem(slot(kind, dest, key), serialized)
 }
 export function readIdentity(dest        , key        )           { return identity(read('identity', dest, key)) ?? defaults(key) }
+export function hasLocalIdentity(dest        , key        )          { return Boolean(identity(read('identity', dest, key))) }
+export const ARCHIVED_GROUP = 'Done & archived'
+// Old local appearance choices keep their precedence; shared defaults never erase them.
+export function effectiveIdentity(dest        , key        , sharedGroup         )           {
+  const value = readIdentity(dest,key), local = hasLocalIdentity(dest,key)
+  return {...value, groupSource: value.groupSource ?? (local ? 'local' : 'shared'), group: value.groupSource === 'shared' || !local ? sharedGroup ?? '' : value.group,
+    artSource: value.artSource ?? (value.cover ? 'local' : local ? 'builtin' : 'shared')}
+}
 export function saveIdentity(dest        , key        , value          )       {
   const checked = identity(value)
   if (!checked) throw new Error('Choose a built-in icon, colour and a group of at most 80 characters')

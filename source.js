@@ -34,8 +34,10 @@ import {
 import { sharedProjectsFrom, snapshotPath } from './project-snapshot.js'
                                                            
 import { REPO_CATALOG_PATH } from './repo-catalog.js'
+import { ART_CATALOG_PATH, validArtworkPath, readArtworkResponse } from './shared-art.js'
 
                     
+                         
                           
                                  
              
@@ -66,6 +68,7 @@ import { githubPhotos } from './photo-source.js'
 import { checkedPhoto } from './photos.js'
 
                       
+                                                
                                                            
                                                            
                           
@@ -135,6 +138,10 @@ async function postHub   (url        , body         )             {
 export function localSource()         {
   return {
     kind: 'local',
+    readArtwork: async path => {
+      if (!validArtworkPath(path)) throw Error('Invalid artwork address')
+      return readArtworkResponse(await fetch('/api/artwork', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path }), cache: 'no-store', redirect: 'error' }))
+    },
     dest: 'local',
     projects: () => getJson      ('/api/projects'),
     record: path => getJson            (`/api/record?path=${encodeURIComponent(path)}`),
@@ -325,6 +332,7 @@ export function githubSource(settings                , signal              )    
         `profile: ${blob('profile.md')}`,
         `glossary: ${blob(GLOSSARY_PATH)}`,
         `repoCatalog: ${blob(REPO_CATALOG_PATH)}`,
+        `artCatalog: ${blob(ART_CATALOG_PATH)}`,
         ...MACHINES.map(m => `usage_${m}: ${blob(`memory/${m}/hub/usage.md`)}`),
         ...MACHINES.map(m => `projects_${m}: ${blob(snapshotPath(m))}`),
         ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`),
@@ -332,6 +340,7 @@ export function githubSource(settings                , signal              )    
     )
     const texts                         = {}
     texts[REPO_CATALOG_PATH] = first.repoCatalog?.text ?? ''
+    texts[ART_CATALOG_PATH] = first.artCatalog?.text ?? ''
     for (const [alias, dir] of Object.entries(dirs)) {
       for (const entry of first[alias]?.entries ?? []) {
         if (entry.type === 'blob' && entry.name.endsWith('.md') && typeof entry.object?.text === 'string') {
@@ -412,11 +421,18 @@ export function githubSource(settings                , signal              )    
 
   return {
     kind: 'github',
+    readArtwork: async path => {
+      if (isRetired()) throw Error('Stopped: connection changed')
+      if (!validArtworkPath(path)) throw Error('Invalid artwork address')
+      const text = await readArtworkResponse(await fetch(contentsUrl(path), { headers: { ...headers, accept: 'application/vnd.github.raw+json' }, signal, cache: 'no-store', redirect: 'error' }))
+      if (isRetired()) throw Error('Stopped: connection changed')
+      return text
+    },
     dest,
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) }
+      return { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', artCatalogText: s.texts[ART_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) }
     },
     record: async path => {
       const s = await current()
@@ -541,7 +557,7 @@ export function snapshotAge(settings                )                {
 export async function snapshotProjects(settings                )                       {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', artCatalogText: s.texts[ART_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

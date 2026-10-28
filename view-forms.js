@@ -10,6 +10,8 @@ import { deviceName, state, UNKNOWN_DEST } from './state.js'
 import { collectionProjects, projectMembers } from './collection-ui.js'
 import { projectKey } from './collection.js'
 import { repoSettingsMarkup } from './repo-reader-ui.js'
+import { sharedArtworkCacheBytes } from './shared-art.js'
+import { displaySettingsMarkup } from './display-settings.js'
 
 const isLocalPage = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 
@@ -152,12 +154,14 @@ export function renderCapture()         {
 
 // Settings for how this device shows things (both apps).
 function displaySettings()         {
-  return `
+  return `${displaySettingsMarkup(state.source?.dest ?? '')}
     <section class="card form">
-      <h3 class="home-h">On this device</h3>
+      <h3 class="home-h">Checkpoint freshness</h3>
+      <p class="muted small">Applies on this device. A stale checkpoint does not mean its project is inactive.</p>
       <label><span>Flag an Active project when its newest checkpoint is at least this many days old (0 for never)</span>
         <input id="set-stale" type="number" min="0" max="365" inputmode="numeric" value="${state.staleDays}"></label>
-    </section>`
+    </section><section class="card"><h3 class="home-h">Downloaded copies</h3><p>Clear downloaded project artwork and saved repository documents from this browser. Your uploaded covers, notes, queued pictures, connections and mappings stay here. Downloaded copies will need a connection to load again.</p><p class="small muted">Shared artwork cache for this profile: ${Math.ceil(sharedArtworkCacheBytes(state.source?.dest ?? '')/1024)} KiB.</p><button type="button" data-action="clear-downloaded-cache">Clear downloaded artwork and documents</button></section>
+    <section class="card"><h3 class="home-h">Refresh and updates</h3><p class="small muted">Last project read: ${state.loadedAt ? esc(new Date(state.loadedAt).toLocaleString()) : 'not yet available'}${state.isOffline?' (saved offline copy)':''}. This is a read time, not a project update time.</p><button data-action="refresh">Refresh project information</button>${state.mode==='github'?'<button data-action="check-app-update">Check phone app update</button>':'<p class="small muted">Desktop app updates are installed from the source repository and applied by the Hub launcher.</p>'}<p id="app-update-status" class="small muted" role="status"></p></section>`
 }
 
 export function renderSettings()         {
@@ -185,6 +189,7 @@ export function renderSettings()         {
       pick <strong>Only select repositories</strong> → <code>claude-profile</code>, generate it, then paste it above.
       Revoke the old one on GitHub (Settings → Developer settings → Fine-grained tokens), and revoke this one there if the phone is lost.</p>
     </section>
+    ${displaySettings()}
     ${repoSettingsMarkup()}
     <section class="card">
       <div class="label strong">This device</div>
