@@ -3,17 +3,20 @@ import { state, changed, errorText, toast } from './state.js'
 import { escapeHtml as esc, renderMarkdown } from './markdown.js'
 import { resolvePath } from './core.js'
 import { recordHref } from './routes.js'
+import { parseRepoCatalog } from './repo-catalog.js'
+import { setSharedRepoDocuments, hasLocalRepoDocuments, discoverRepoDocuments, useAutomaticRepoDocuments, hasRepoManualBackup, restoreManualRepoDocuments } from './repo-reader.js'
 import { REPO_READER_PREFIX, readRepoDocuments, saveRepoDocuments, hasRepoToken, saveRepoToken, forgetRepoToken, clearRepoCopies, retireRepoReads, readRepoCopy, refreshRepoDocument, repoSourceUrl, repoLinkResolver } from './repo-reader.js'
                                                                          
 
                                                                                            
 let dialog                        = null, serial = 0, opener = '', sourceDest = '', sourceGeneration = 0
-let project                    = null, selected = '', existingLink = ''
+let project                    = null, selected = '', existingLink = '', sourceNotice = ''
+let preferredKind                 ='docs'
 export function repoCardControls(file       )        {
   return `<div class="repo-card-actions">${['Roadmap','Docs'].map(label=>`<button id="repo-${label.toLowerCase()}-${esc(encodeURIComponent(file))}" data-action="repo-${label.toLowerCase()}" data-value="${esc(file)}">${label}</button>`).join('')}</div>`
 }
 export function repoSettingsMarkup()        {
-  return `<section class="card repo-settings"><h3>Repository documents</h3><p>Separate read connection: ${hasRepoToken()?'token saved on this device':'not connected'}. Roadmaps, READMEs and their saved copies stay on this device.</p><button id="repo-connection-settings" data-action="repo-connection">Repository connection</button></section>`
+  return `<section class="card repo-settings"><h3>Repository documents</h3><p>Separate read connection: ${hasRepoToken()?'token saved on this device':'not connected'}. Shared document links arrive with your profile. Tokens, saved document contents and manual overrides stay in this browser.</p><button id="repo-connection-settings" data-action="repo-connection">Repository connection</button></section>`
 }
 export function closeRepoReader(restore = true)      {
   serial++; retireRepoReads()
@@ -45,6 +48,13 @@ function createDialog(id       , context                   )                   {
     else if(action==='connection')showConnection()
     else if(action==='reader')showReader()
     else if(action==='refresh')void readSelected()
+    else if(action==='discover')void discoverSources()
+    else if((action==='automatic'||action==='restore-manual')&&project){
+      try {
+        if(action==='automatic')useAutomaticRepoDocuments(project.scope);else restoreManualRepoDocuments(project.scope)
+        const context=project,id=opener;openRepoReader(context,'docs',id);changed()
+      }catch(error){message(errorText(error))}
+    }
     else if(action==='add')addMapping()
     else if(action==='remove')el.closest('fieldset')?.remove()
     else if(action==='forget'||action==='clear'){
@@ -77,10 +87,17 @@ function heading(title       )        {
 function message(text       )      { const el=dialog?.querySelector('.repo-error');if(el)el.textContent=text }
 export function openRepoConnection(id       )      { const d=createDialog(id,null);showConnection();d.showModal() }
 export function openRepoReader(context              ,mode                 ,id       )      {
-  const d=createDialog(id,context), docs=readRepoDocuments(context.scope)
+  const d=createDialog(id,context)
+  preferredKind=mode
+  const parsed=parseRepoCatalog(state.data?.repoCatalogText??'')
+  const shared=parsed.catalog.records[context.record]
+  sourceNotice=parsed.error|| (hasLocalRepoDocuments(context.scope)?'Using manual sources saved in this browser.':shared!==undefined?'Shared links from your profile; document contents are fetched separately.':'Automatic discovery checks the recorded repositories. Its results and document contents are saved in this browser.')
+  try {setSharedRepoDocuments(context.scope,shared)}catch(error){sourceNotice=errorText(error)}
+  const docs=readRepoDocuments(context.scope)
   selected=(mode==='roadmap'?docs.find(doc=>doc.kind==='roadmap'):docs[0])?.id??''
   if(selected||docs.length)showReader();else showMappings()
   d.showModal()
+  if(!docs.length&&shared===undefined&&!parsed.error&&!hasLocalRepoDocuments(context.scope)&&hasRepoToken())void discoverSources()
   // The existing record reader owns shared-profile files. Never translate local paths.
   const source=state.source, generation=state.sourceGeneration
   if(source)void source.record(context.record).then(record=>{
@@ -93,6 +110,17 @@ export function openRepoReader(context              ,mode                 ,id   
     }
     const link=dialog.querySelector('.repo-profile-link');if(link)link.innerHTML=existingLink
   }).catch(()=>{})
+}
+async function discoverSources()               {
+  if(!dialog||!project)return
+  const d=dialog, context=project, request=++serial
+  d.innerHTML=heading(`Finding documents for ${context.name}`)+'<p role="status">Looking for README and roadmap files in the recorded repositories…</p>'
+  const result=await discoverRepoDocuments(context.scope,context.repos)
+  if(dialog!==d||project!==context||request!==serial)return
+  if(result.error){showMappings();message(result.error);return}
+  sourceNotice='Automatically discovered in the recorded repositories. Saved on this browser; other devices can discover the same files.'
+  selected=(preferredKind==='roadmap'?result.docs.find(doc=>doc.kind==='roadmap'):result.docs[0])?.id??''
+  showReader();changed()
 }
 function showConnection()      {
   if(!dialog)return
@@ -111,7 +139,7 @@ function showMappings()      {
   if(!dialog||!project)return
   serial++;retireRepoReads()
   const docs=readRepoDocuments(project.scope)
-  dialog.innerHTML=heading(`Sources for ${project.name}`)+`<p>Choose up to eight labelled Markdown documents. Map each repository separately, for example Parent roadmap and Site README. Repository suggestions are optional; choose each source explicitly. Local absolute paths cannot be read here.</p><button type="button" data-repo="connection">Repository connection</button><p class="repo-profile-link">${existingLink}</p><form id="repo-mappings"><datalist id="repo-suggestions">${[...new Set(project.repos)].filter(r=>/^https:\/\/github.com\/[^/]+\/[^/]+$/.test(r)).map(r=>`<option value="${esc(r.slice(19))}"></option>`).join('')}</datalist><div class="repo-mapping-rows">${(docs.length?docs:[undefined]).map(mappingRow).join('')}</div><div class="actions"><button type="button" data-repo="add">Add document</button><button class="primary">Save sources</button><button type="button" data-repo="reader">Back to documents</button></div></form><p class="repo-error error" role="alert"></p>`
+  dialog.innerHTML=heading(`Sources for ${project.name}`)+`<p class="muted">${esc(sourceNotice)}</p><p>Saving here creates a browser-only override. Shared links are maintained in the profile catalogue.</p>${hasLocalRepoDocuments(project.scope)?'<button type="button" data-repo="automatic">Use shared / automatic sources</button>':hasRepoManualBackup(project.scope)?'<button type="button" data-repo="restore-manual">Restore previous manual sources</button>':''}<p>Choose up to eight labelled Markdown documents. Map each repository separately, for example Parent roadmap and Site README. Repository suggestions are optional; choose each source explicitly. Local absolute paths cannot be read here.</p><button type="button" data-repo="connection">Repository connection</button><p class="repo-profile-link">${existingLink}</p><form id="repo-mappings"><datalist id="repo-suggestions">${[...new Set(project.repos)].filter(r=>/^https:\/\/github.com\/[^/]+\/[^/]+$/.test(r)).map(r=>`<option value="${esc(r.slice(19))}"></option>`).join('')}</datalist><div class="repo-mapping-rows">${(docs.length?docs:[undefined]).map(mappingRow).join('')}</div><div class="actions"><button type="button" data-repo="add">Add document</button><button class="primary">Save sources</button><button type="button" data-repo="reader">Back to documents</button>${!hasLocalRepoDocuments(project.scope)&&!readRepoDocuments(project.scope).length?'<button type="button" data-repo="discover">Discover documents</button>':''}</div></form><p class="repo-error error" role="alert"></p>`
 }
 function dateText(at       )        { return new Date(at).toLocaleString('en-GB') }
 function copyMarkup(copy         )        {
@@ -126,7 +154,7 @@ function showReader()      {
   serial++;retireRepoReads()
   const docs=readRepoDocuments(project.scope)
   if(!docs.some(doc=>doc.id===selected))selected=docs[0]?.id??''
-  dialog.innerHTML=heading(`Documents for ${project.name}`)+`<p class="repo-profile-link">${existingLink}</p>${docs.length?`<label>Document<select id="repo-document" aria-label="Document">${docs.map(doc=>`<option value="${esc(doc.id)}"${doc.id===selected?' selected':''}>${esc(doc.label)} — ${esc(doc.repo)}</option>`).join('')}</select></label>`:'<p>No repository documents configured. Add a roadmap or README source to start reading.</p>'}<div class="actions">${docs.length?'<button class="primary" type="button" data-repo="refresh">Read document</button>':''}<button type="button" data-repo="manage">Manage sources</button><button type="button" data-repo="connection">Repository connection</button></div><p class="repo-read-status" role="status"></p><p class="repo-error error" role="alert"></p><section class="repo-copy" aria-label="Document content"></section>`
+  dialog.innerHTML=heading(`Documents for ${project.name}`)+`<p class="muted">${esc(sourceNotice)}</p><p class="repo-profile-link">${existingLink}</p>${docs.length?`<label>Document<select id="repo-document" aria-label="Document">${docs.map(doc=>`<option value="${esc(doc.id)}"${doc.id===selected?' selected':''}>${esc(doc.label)} — ${esc(doc.repo)}</option>`).join('')}</select></label>`:'<p>No repository documents configured. Add a roadmap or README source to start reading.</p>'}<div class="actions">${docs.length?'<button class="primary" type="button" data-repo="refresh">Read document</button>':''}<button type="button" data-repo="manage">Manage sources</button><button type="button" data-repo="connection">Repository connection</button></div><p class="repo-read-status" role="status"></p><p class="repo-error error" role="alert"></p><section class="repo-copy" aria-label="Document content"></section>`
   if(docs.length)void readSelected()
 }
 async function readSelected()               {

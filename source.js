@@ -33,8 +33,10 @@ import {
                                                                                                                                                                                                   
 import { sharedProjectsFrom, snapshotPath } from './project-snapshot.js'
                                                            
+import { REPO_CATALOG_PATH } from './repo-catalog.js'
 
                     
+                          
                                  
              
                      
@@ -322,12 +324,14 @@ export function githubSource(settings                , signal              )    
         `sync: ${blob('sync.sh')}`,
         `profile: ${blob('profile.md')}`,
         `glossary: ${blob(GLOSSARY_PATH)}`,
+        `repoCatalog: ${blob(REPO_CATALOG_PATH)}`,
         ...MACHINES.map(m => `usage_${m}: ${blob(`memory/${m}/hub/usage.md`)}`),
         ...MACHINES.map(m => `projects_${m}: ${blob(snapshotPath(m))}`),
         ...Object.entries(dirs).map(([alias, dir]) => `${alias}: ${tree(dir)}`),
       ].join('\n')),
     )
     const texts                         = {}
+    texts[REPO_CATALOG_PATH] = first.repoCatalog?.text ?? ''
     for (const [alias, dir] of Object.entries(dirs)) {
       for (const entry of first[alias]?.entries ?? []) {
         if (entry.type === 'blob' && entry.name.endsWith('.md') && typeof entry.object?.text === 'string') {
@@ -412,7 +416,7 @@ export function githubSource(settings                , signal              )    
     // A fresh load each time; offline, the caller falls back to snapshotProjects().
     projects: async () => {
       const s = await load()
-      return { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) }
+      return { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) }
     },
     record: async path => {
       const s = await current()
@@ -537,7 +541,7 @@ export function snapshotAge(settings                )                {
 export async function snapshotProjects(settings                )                       {
   if (!settings.repo.trim()) return null
   const s = readSnapshot(destinationOf(settings))
-  return s ? { now: Date.now(), projects: projectsFrom(s), live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) } : null
+  return s ? { now: Date.now(), projects: projectsFrom(s), repoCatalogText: s.texts[REPO_CATALOG_PATH] ?? '', live: [], usage: s.usage, published: s.published, glossary: s.glossary, aliases: s.aliases, owner: s.owner, sharedProjects: await sharedProjectsFrom(s.texts, s.projectSnapshots ?? {}, Date.now(), s.owner) } : null
 }
 
 // Everything this app keeps for any repository on this device (snapshots); used by "Remove all hub data".

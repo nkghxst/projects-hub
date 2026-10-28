@@ -1,5 +1,7 @@
 // Independent browser-local repository reader. Never imports profile writer settings.
-                                                                                                                     
+import { validRepo, validDocument } from './repo-catalog.js'
+                                                     
+                                                     
                                                        
                                                                                                                                                    
                                                                                                     
@@ -21,12 +23,6 @@ function validScope(v        )                 { return object(v) && clean(v.des
 function validRef(v        )              {
   return v === '' || (clean(v, 255) && !/[\s\\~^:?*\[\]]/.test(v) && v !== '@' && !v.includes('@{') && !v.includes('..') && !v.startsWith('-') && v.split('/').every(p => p !== '' && p !== '.' && !p.startsWith('.') && !p.endsWith('.') && !p.endsWith('.lock')))
 }
-function validDocument(v        )                    {
-  return object(v) && clean(v.id, 100) && clean(v.label, 160) && (v.kind === 'roadmap' || v.kind === 'readme') &&
-    typeof v.repo === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/.test(v.repo) && !['.', '..'].includes(v.repo.split('/')[1]) &&
-    validRef(v.ref) && clean(v.path, 1024) && !/[\\:]/.test(v.path) && /\.(md|markdown)$/i.test(v.path) &&
-    v.path.split('/').length <= 16 && v.path.split('/').every(p => p !== '' && p !== '.' && p !== '..')
-}
 function documentValue(v             )               { return { id:v.id, label:v.label, kind:v.kind, repo:v.repo, ref:v.ref, path:v.path } }
 function documentsKey(scope          )         { return `${REPO_READER_PREFIX}documents.${JSON.stringify([scope.dest, scope.project])}` }
 function parse(raw            )          { try { return JSON.parse(raw ?? 'null') } catch { return null } }
@@ -42,7 +38,26 @@ function parseDocuments(raw            )                 {
   return Array.isArray(docs) && docs.length <= 8 && docs.every(validDocument) && new Set(docs.map(d => d.id)).size === docs.length ? docs.map(documentValue) : []
 }
 export function readRepoDocuments(scope          )                 {
-  return validScope(scope) ? parseDocuments(get(documentsKey(scope))) : []
+  return validScope(scope) ? parseDocuments(get(documentsKey(scope)) ?? get(documentsKey(scope)+'.shared') ?? get(documentsKey(scope)+'.discovered')) : []
+}
+export const hasLocalRepoDocuments = (scope          )         => validScope(scope) && get(documentsKey(scope))!==null
+export function useAutomaticRepoDocuments(scope          )      {
+  if(!validScope(scope))return
+  const value=get(documentsKey(scope));changeEpoch()
+  if(value!==null)write(documentsKey(scope)+'.manual-backup',value)
+  remove(documentsKey(scope))
+}
+export const hasRepoManualBackup=(scope          )        =>validScope(scope)&&get(documentsKey(scope)+'.manual-backup')!==null
+export function restoreManualRepoDocuments(scope          )      {
+  if(!validScope(scope))return
+  const value=get(documentsKey(scope)+'.manual-backup');if(value===null)return
+  saveRepoDocuments(scope,parseDocuments(value))
+}
+export function setSharedRepoDocuments(scope          , docs                         )      {
+  if(!validScope(scope)|| (docs!==undefined && (docs.length>8||!docs.every(validDocument))))throw Error('Invalid shared sources')
+  const key=documentsKey(scope)+'.shared', value=docs===undefined?null:JSON.stringify(docs.map(documentValue))
+  if(get(key)===value)return
+  changeEpoch();if(value===null)remove(key);else write(key,value)
 }
 export function retireRepoReads()       { generation++; for (const controller of active) controller.abort(); active.clear(); inFlight.clear() }
 function changeEpoch()       { retireRepoReads(); write(EPOCH, `${Date.now()}-${crypto.randomUUID()}`) }
@@ -161,12 +176,12 @@ export async function refreshRepoDocument(scope          , doc             )    
   // never values read before it; a second capture detects changes during the first capture.
   scope = { dest:scope.dest, project:scope.project }; doc = documentValue(doc)
   const current = generation, mappingKey = documentsKey(scope)
-  const snapshot = () => [get(TOKEN), get(EPOCH), get('hub.epoch'), get(mappingKey)]         
+  const snapshot = () => [get(TOKEN), get(EPOCH), get('hub.epoch'), get(mappingKey), get(mappingKey+'.shared'), get(mappingKey+'.discovered')]         
   const identity = snapshot()
   const changed = () => current !== generation || !same(identity, snapshot())
   const stopped = () => failed('Stopped: repository connection, documents or source changed.', null)
   if (changed()) return stopped()
-  if (!parseDocuments(identity[3]).some(d => same(d, doc))) return failed('Repository document is invalid or its mapping has changed.', null)
+  if (!parseDocuments(identity[3] ?? identity[4] ?? identity[5]).some(d => same(d, doc))) return failed('Repository document is invalid or its mapping has changed.', null)
   const token = validToken(identity[0]) ? identity[0] : ''
   saved = readRepoCopy(scope, doc)
   if (changed()) return stopped()
@@ -221,6 +236,61 @@ export async function refreshRepoDocument(scope          , doc             )    
     clearTimeout(timeout); active.delete(controller)
     if (inFlight.get(requestKey) === controller) inFlight.delete(requestKey)
   }
+}
+
+// Discovery examines names in two trees, never arbitrary links, recursive trees or file contents.
+// It uses the same cancellation, redirect, response-size and credential boundaries as reading.
+export async function discoverRepoDocuments(scope          , urls         )                                             {
+  if(!validScope(scope))return {docs:[],error:'Invalid project scope.'}
+  const repos=[...new Set(urls.filter(u=>/^https:\/\/github.com\/[^/]+\/[^/]+\/?$/.test(u)).map(u=>u.slice(19).replace(/\/$/,'')).filter(validRepo))]
+  if(repos.length>4)return {docs:[],error:'Discovery supports up to four explicit repositories. Configure sources for this project.'}
+  const token=tokenValue(), epoch=get(EPOCH), hubEpoch=get('hub.epoch'), initial=generation
+  if(!token)return {docs:[],error:'Save the separate repository read token to discover documents.'}
+  if(!repos.length)return {docs:[],error:'No explicit GitHub repository is recorded for this project.'}
+  const controller=new AbortController();active.add(controller)
+  const check=()=>{if(controller.signal.aborted||initial!==generation||get(EPOCH)!==epoch||get('hub.epoch')!==hubEpoch||tokenValue()!==token)throw new ReadError('Stopped: repository connection or project changed.')}
+  const timeout=setTimeout(()=>controller.abort(),20000)
+  const docs               =[], errors         =[]
+  try {
+    for(const repo of repos) {
+      try {
+        const base=`/repos/${repo}`, api=(path       )=>request(path,token,controller.signal,check)
+        const metadata=await api(base)
+        if(!object(metadata)||!validRef(metadata.default_branch)||!metadata.default_branch)throw invalid()
+        const revision=await request(`${base}/commits/${encodeURIComponent(metadata.default_branch)}`,token,controller.signal,check,true)
+        if(!sha(revision))throw invalid()
+        const commit=await api(`${base}/git/commits/${revision}`)
+        if(!object(commit)||commit.sha!==revision||!object(commit.tree)||!sha(commit.tree.sha))throw invalid()
+        const readTree=async (id       )=>{
+          const tree=await api(`${base}/git/trees/${id}`)
+          if(!object(tree)||tree.sha!==id||tree.truncated===true||!Array.isArray(tree.tree)||tree.tree.length>5000)throw invalid()
+          const names=new Set        ()
+          for(const e of tree.tree){if(!object(e)||typeof e.path!=='string'||e.path.includes('/')||names.has(e.path)||!sha(e.sha))throw invalid();names.add(e.path)}
+          return tree.tree                                                      
+        }
+        const root=await readTree(commit.tree.sha), candidates                                          =[]
+        const collect=(entries            ,prefix       )=>{for(const e of entries){
+          if(e.type!=='blob'||!['100644','100755'].includes(e.mode))continue
+          const match=/^(readme|roadmap|milestones|backlog)\.(md|markdown)$/i.exec(e.path)
+          if(match)candidates.push({path:prefix+e.path,kind:match[1].toLowerCase()==='readme'?'readme':'roadmap'})
+        }}
+        collect(root,'')
+        const folder=root.find(e=>e.path==='docs'&&e.type==='tree'&&e.mode==='040000')
+        if(folder)collect(await readTree(folder.sha),'docs/')
+        candidates.sort((a,b)=>a.path.localeCompare(b.path,'en'))
+        for(const c of candidates) {
+          const doc             ={id:`auto-${docs.length}`,label:`${repo.split('/')[1]} · ${c.path}`,kind:c.kind,repo,ref:'',path:c.path}
+          if(validDocument(doc))docs.push(doc)
+        }
+      }catch(error){check();errors.push(`${repo}: ${error instanceof ReadError?error.message:'Discovery failed; check your connection.'}`)}
+    }
+    check()
+    if(docs.length>8)return {docs:[],error:'More than eight documents found. Choose explicit sources for this project.'}
+    // Never overwrite local choices or a shared catalogue, and never cache a partial/failed search.
+    if(!errors.length&&docs.length&&!hasLocalRepoDocuments(scope)&&get(documentsKey(scope)+'.shared')===null){changeEpoch();write(documentsKey(scope)+'.discovered',JSON.stringify(docs))}
+    return {docs,error:errors.join(' ')||(!docs.length?'No standard README or roadmap Markdown files found in the root or docs folder.':'')}
+  }catch{return {docs:[],error:'Discovery stopped or timed out. Reopen Docs to retry.'}}
+  finally{clearTimeout(timeout);active.delete(controller)}
 }
 
 export function repoSourceUrl(copy         )         {
