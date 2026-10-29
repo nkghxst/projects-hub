@@ -142,6 +142,7 @@ export const state = {
   abort: new AbortController(),
   data: null               ,
   loadedAt: 0,
+  usageRefreshing: false,
   error: '',
   isOffline: false,
   filters: { ...DEFAULT_FILTERS, machine: readJson                  ('hub.filters', {}).machine ?? 'all', sort: readJson                  ('hub.filters', {}).sort ?? 'checkpoint' }           ,

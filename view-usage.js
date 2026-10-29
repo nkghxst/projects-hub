@@ -56,6 +56,9 @@ function panelHtml(rows            , now        )         {
           <span class="muted">${w.resetsAtMs !== null ? `resets <span data-reset-ms="${w.resetsAtMs}">${esc(untilLabel(w.resetsAtMs, now))}</span> · ${esc(fmtStamp(w.resetsAtMs, now))}` : 'reset time not reported'}</span></div>`
   return `
     <div id="usage-panel" class="usage-panel card" role="region" aria-label="Usage details">
+      <button type="button" data-action="usage-refresh"${state.usageRefreshing ? ' disabled' : ''}>${state.usageRefreshing ? 'Checking readings…' : 'Refresh readings'}</button>
+      <p class="small muted">Percentages show usage consumed, not remaining. Refresh checks available readings; their observation dates only change when a newer reading is found. ${state.mode === 'local' ? 'Desktop also checks recent local Codex sessions.' : 'Phone reads published snapshots; another machine must publish newer readings.'}</p>
+      ${state.loadedAt ? `<p class="small muted">Hub data loaded ${esc(fmtStamp(state.loadedAt, now))}${state.isOffline ? ' from a saved copy' : ''}; provider observation times are below.</p>` : ''}
       ${rows
         .map(
           r => `<div class="usage-row">
@@ -80,9 +83,9 @@ export function renderUsageBar(usage                            , now        )  
     return {
       ...names(r, rows),
       account: r.account,
-      text: w ? `${Math.round(w.usedPercent ?? 0)}%` : '?',
+      text: w ? `${Math.round(w.usedPercent ?? 0)}% used` : '?',
       age: now - observed > STALE_MS ? age : '',
-      said: `${w ? `${Math.round(w.usedPercent ?? 0)}% of ${w.name}` : 'reset passed, use unknown'}, read ${age} ago`,
+      said: `${w ? `${Math.round(w.usedPercent ?? 0)}% used of ${w.name}` : 'reset passed, use unknown'}, read ${age} ago`,
     }
   })
   const label = `Usage: ${chips.map(c => `${c.name} ${c.said}`).join('; ')}. ${state.usageOpen ? 'Hide' : 'Show'} details`

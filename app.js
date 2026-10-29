@@ -298,6 +298,13 @@ document.addEventListener('click', async event => {
     state.usageOpen = !state.usageOpen
     changed()
   }
+  else if (action === 'usage-refresh') {
+    if (state.usageRefreshing) return
+    state.usageRefreshing = true
+    changed()
+    try { await loadAll() }
+    finally { state.usageRefreshing = false; changed() }
+  }
   else if (action === 'mark-handled') await setHandled(value, true)
   else if (action === 'reopen') await setHandled(value, false)
   else if (action === 'search') {
